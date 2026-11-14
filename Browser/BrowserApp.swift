@@ -1,6 +1,6 @@
 //
-//  funTVApp.swift
-//  funTV
+//  BrowserApp.swift
+//  Browser
 //
 //  Created by Tim on 14.11.26.
 //

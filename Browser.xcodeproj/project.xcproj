@@ -10,26 +10,42 @@
       "Base",
     ],
   },
+  "packages": [
+    {
+      "kind": "remote",
+      "repository": "https://github.com/will-lumley/FaviconFinder.git",
+      "version": {
+        "up-to-next-major-version": "5.1.5",
+      },
+    },
+  ],
   "files": [
-    { "kind": "folder", "path": "funTV", "target-membership": [ "funTV" ] },
+    { "kind": "folder", "path": "Browser", "target-membership": [ "Browser" ] },
     {
       "kind": "group",
       "name": "Products",
       "children": [
-        { "path": "<PRODUCTS>/funTV.app", "id": "8DD8A9AF30A8A88B00B8F7F4", "type": "wrapper.application", "index": false },
+        { "path": "<PRODUCTS>/Browser.app", "id": "8DD8A9AF30A8A88B00B8F7F4", "type": "wrapper.application", "index": false },
       ],
     },
   ],
   "targets": [
     {
-      "name": "funTV",
+      "name": "Browser",
       "id": "8DD8A9AE30A8A88B00B8F7F4",
-      "product": "Products/funTV.app",
+      "product": "Products/Browser.app",
       "product-type": "application",
       "build-phases": [
         "compile-sources",
         "frameworks",
         "resources",
+      ],
+      "package-product-members": [
+        {
+          "package": "FaviconFinder",
+          "product-name": "FaviconFinder",
+          "build-phase": { "build-phase": "frameworks" },
+        },
       ],
       "build-settings": {
         "ASSETCATALOG_COMPILER_APPICON_NAME": "App Icon & Top Shelf Image",
