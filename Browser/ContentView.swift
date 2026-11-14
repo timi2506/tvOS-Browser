@@ -10,90 +10,80 @@ import Combine
 import FaviconFinder
 import SwiftSoup
 
+enum RemoteControlMode: String, CaseIterable, Identifiable {
+    case cursor = "Cursor"
+    case scroll = "Scroll"
+    case tvRemote = "Remote"
+    
+    var id: String { rawValue }
+    
+    var iconName: String {
+        switch self {
+        case .cursor: return "circle.inset.filled"
+        case .scroll: return "arrow.up.and.down"
+        case .tvRemote: return "tv"
+        }
+    }
+}
+
+enum UserAgentType: String, CaseIterable, Identifiable {
+    case desktopSafari = "Desktop (Mac Safari)"
+    case mobileSafari = "Mobile (iPhone)"
+    case iPadSafari = "Tablet (iPad)"
+    case smartTV = "Apple TV"
+    case custom = "Custom"
+    
+    var id: String { rawValue }
+    
+    var value: String {
+        switch self {
+        case .desktopSafari:
+            return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
+        case .mobileSafari:
+            return "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
+        case .iPadSafari:
+            return "Mozilla/5.0 (iPad; CPU OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
+        case .smartTV:
+            return "Mozilla/5.0 (AppleTV; CPU OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
+        case .custom:
+            return UserDefaults.standard.string(forKey: "CustomUserAgentString") ?? WebViewManager.defaultCustomUserAgent
+        }
+    }
+}
+
 struct ContentView: View {
     @StateObject var manager = WebViewManager.shared
     @FocusState var focusMenu: Bool
     @State var urlBarURL = ""
     @State var wrongURLPrompt = false
     
+    private var urlHostTitle: String {
+        manager.url?.host() ?? "URL or Search"
+    }
+    
     var body: some View {
         NavigationStack {
-            HStack {
+            HStack(spacing: 0) {
                 if manager.presentMenu {
-                    VStack {
-                        HStack {
-                            HStack(spacing: 15) {
-                                NavigationLink(destination: {
-                                    SearchView(urlBarURL: urlBarURL) {
-                                        manager.loadURL($0)
-                                    }
-                                }) {
-                                    HStack {
-                                        Text(manager.url?.host() ?? "URL or Search")
-                                            .foregroundStyle(manager.url == nil ? .secondary : .primary)
-                                        Spacer()
-                                    }
-                                }
-                                .buttonStyle(.bordered)
-                                Button("Reload", systemImage: "arrow.clockwise") {}
-                                    .labelStyle(.iconOnly)
-                                    .buttonBorderShape(.circle)
-                            }
-                            .padding(10)
-                            .background {
-                                if let currentColor = manager.currentColor {
-                                    Capsule()
-                                        .foregroundStyle(currentColor)
-                                }
-                            }
-                        }
-                        ScrollView(.horizontal) {
-                            HStack(spacing: 10) {
-                                ForEach($manager.favorites) { favorite in
-                                    FavoriteButton(favorite: favorite)
-                                }
-                            }
-                        }
-                        .scrollClipDisabled()
-                        .frame(maxWidth: 500)
-                        Spacer()
-                    }
-                    .padding()
-                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 50))
-                    .frame(maxWidth: 500)
-                    .clipShape(RoundedRectangle(cornerRadius: 50))
-                    .transition(.move(edge: .leading).combined(with: .opacity))
-                    .focused($focusMenu)
+                    sidebarView
                 }
-                ZStack {
-                    WebViewContent()
-                    Circle()
-                        .frame(width: 50, height: 50)
-                        .foregroundStyle(.regularMaterial)
-                        .opacity(0.75)
-                        .overlay {
-                            Circle()
-                                .frame(width: 10, height: 10)
-                                .foregroundStyle(.white)
-                                .blur(radius: 5)
-                        }
-                        .overlay {
-                            Circle()
-                                .stroke(.gray.opacity(0.25), lineWidth: 1.5)
-                                .frame(width: 50, height: 50)
-                        }
-                        .offset(manager.cursorOffset)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                
+                webContentView
             }
+            .ignoresSafeArea()
         }
-        .onChange(of: manager.presentMenu) {
+        .ignoresSafeArea()
+        .sheet(isPresented: $manager.presentQuickMenu) {
+            QuickMenuView(manager: manager)
+                .frame(width: 1200, height: 900)
+        }
+        .onChange(of: manager.presentMenu) { _, newValue in
             withAnimation {
-                focusMenu = manager.presentMenu
+                focusMenu = newValue
             }
         }
-        .onChange(of: manager.url) {
-            if let url = manager.url {
+        .onChange(of: manager.url) { _, newURL in
+            if let url = newURL {
                 withAnimation {
                     urlBarURL = url.absoluteString
                 }
@@ -112,9 +102,282 @@ struct ContentView: View {
             Text("The URL \"\(urlBarURL)\" is not a valid URL.")
         }
     }
+    
+    @ViewBuilder
+    private var sidebarView: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            HStack {
+                HStack(spacing: 15) {
+                    NavigationLink(destination: {
+                        SearchView(urlBarURL: urlBarURL) {
+                            manager.loadURL($0)
+                        }
+                    }) {
+                        HStack {
+                            Text(urlHostTitle)
+                                .foregroundStyle(manager.url == nil ? .secondary : .primary)
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    
+                    Button("Reload", systemImage: "arrow.clockwise") {
+                        manager.reload()
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonBorderShape(.circle)
+                }
+                .padding(10)
+                .background {
+                    if let currentColor = manager.currentColor {
+                        Capsule()
+                            .foregroundStyle(currentColor)
+                    }
+                }
+            }
+            
+            VStack(alignment: .leading, spacing: 5) {
+                Text("FAVORITES")
+                    .font(.caption2)
+                    .bold()
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 5)
+                
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12.5) {
+                        ForEach($manager.favorites) { $favorite in
+                            FavoriteButton(favorite: $favorite)
+                        }
+                    }
+                    .padding(.vertical, 5)
+                }
+                .scrollClipDisabled()
+            }
+            .frame(maxWidth: 520)
+            
+            Divider()
+                .padding(.vertical, 5)
+            
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("TABS (\(manager.tabs.count))")
+                        .font(.caption2)
+                        .bold()
+                        .foregroundStyle(.secondary)
+                    
+                    Spacer()
+                    
+                    Button("New Tab", systemImage: "plus") {
+                        withAnimation {
+                            manager.addNewTab()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.circle)
+                    .labelStyle(.iconOnly)
+                }
+                .padding(.horizontal, 5)
+                
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 10) {
+                        ForEach(manager.tabs) { tab in
+                            TabRowView(tab: tab, isActive: tab.id == manager.activeTabId) {
+                                withAnimation {
+                                    manager.selectTab(id: tab.id)
+                                }
+                            } onClose: {
+                                withAnimation {
+                                    manager.closeTab(id: tab.id)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 5)
+                }
+                .scrollClipDisabled()
+                .frame(maxHeight: .infinity)
+            }
+            
+            Spacer()
+            
+            Divider()
+                .padding(.vertical, 5)
+            
+            HStack(spacing: 15) {
+                Spacer()
+                NavigationLink(destination: {
+                    DownloadsView()
+                }) {
+                    Label("Downloads", systemImage: "arrow.down.circle")
+                }
+                .buttonStyle(.bordered)
+                Button("Close", systemImage: "xmark") {
+                    withAnimation {
+                        manager.presentMenu = false
+                    }
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
+                Spacer()
+            }
+        }
+        .padding(20)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 36))
+        .frame(maxWidth: 520)
+        .clipShape(RoundedRectangle(cornerRadius: 36))
+        .transition(.move(edge: .leading).combined(with: .opacity))
+        .focused($focusMenu)
+    }
+    
+    @ViewBuilder
+    private var webContentView: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .topLeading) {
+                TVWebViewRepresentable(manager: manager)
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .ignoresSafeArea()
+                
+                if manager.isLoading && manager.estimatedProgress < 1.0 {
+                    ProgressView(value: max(0.05, manager.estimatedProgress))
+                        .progressViewStyle(.linear)
+                        .tint(manager.currentColor ?? .blue)
+                        .frame(height: 4)
+                        .frame(maxWidth: .infinity)
+                }
+                
+                if manager.controlMode == .cursor {
+                    Circle()
+                        .frame(width: 44, height: 44)
+                        .foregroundStyle(.regularMaterial)
+                        .opacity(0.85)
+                        .scaleEffect(manager.isTapping ? 0.75 : 1.0)
+                        .overlay {
+                            Circle()
+                                .frame(width: 8, height: 8)
+                                .foregroundStyle(manager.isTapping ? Color.accentColor : Color.white)
+                                .blur(radius: manager.isTapping ? 1 : 3)
+                        }
+                        .overlay {
+                            Circle()
+                                .stroke(manager.isTapping ? Color.accentColor : Color.white.opacity(0.4), lineWidth: 1.5)
+                                .frame(width: 44, height: 44)
+                        }
+                        .animation(.easeOut(duration: 0.12), value: manager.isTapping)
+                        .position(manager.cursorPosition)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea()
+            .onAppear {
+                manager.updateViewSize(geo.size)
+            }
+            .onChange(of: geo.size) { _, newSize in
+                manager.updateViewSize(newSize)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea()
+    }
 }
 
-import SwiftUI
+struct TabRowView: View {
+    @ObservedObject var tab: BrowserTab
+    var isActive: Bool
+    var onSelect: () -> Void
+    var onClose: () -> Void
+    @State private var showingActionSheet = false
+    
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 15) {
+                if let fav = tab.favicon {
+                    Image(uiImage: fav)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 35, height: 35)
+                        .clipShape(RoundedRectangle(cornerRadius: 5))
+                } else if isActive {
+                    Image(systemName: "globe")
+                        .font(.title3)
+                        .foregroundStyle(.tint)
+                        .frame(width: 35, height: 35)
+                } else {
+                    Image(systemName: "globe")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 35, height: 35)
+                }
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(tab.title.isEmpty ? (tab.url?.host() ?? "New Tab") : tab.title)
+                        .font(.callout)
+                        .bold(isActive)
+                        .lineLimit(1)
+                    
+                    if let host = tab.url?.host() {
+                        Text(host)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                
+                Spacer()
+                
+                if tab.isLoading {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .scaleEffect(0.6)
+                } else if isActive {
+                    Image(systemName: "checkmark")
+                        .font(.caption)
+                        .foregroundStyle(.tint)
+                }
+            }
+            .padding(.horizontal, 7.5)
+            .padding(.vertical, 5)
+        }
+        .buttonStyle(.bordered)
+        .contextMenu {
+            Button(role: .destructive) {
+                withAnimation {
+                    onClose()
+                }
+            } label: {
+                Label("Close Tab", systemImage: "xmark")
+            }
+            
+            Button {
+                tab.reload()
+            } label: {
+                Label("Reload Tab", systemImage: "arrow.clockwise")
+            }
+            
+            Button {
+                WebViewManager.shared.addNewTab(url: tab.url)
+            } label: {
+                Label("Duplicate Tab", systemImage: "plus.square.on.square")
+            }
+        }
+        .onPlayPauseCommand {
+            showingActionSheet.toggle()
+        }
+        .confirmationDialog("Tab Options", isPresented: $showingActionSheet, titleVisibility: .visible) {
+            Button("Close Tab", role: .destructive) {
+                withAnimation {
+                    onClose()
+                }
+            }
+            Button("Reload") {
+                tab.reload()
+            }
+            Button("Duplicate Tab") {
+                WebViewManager.shared.addNewTab(url: tab.url)
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+}
 
 struct SearchView: View {
     @Environment(\.dismiss) var dismiss
@@ -225,77 +488,226 @@ struct SearchView: View {
 }
 
 class WebViewManager: ObservableObject {
+    public static let shared = WebViewManager()
+    
+    @Published public var tabs: [BrowserTab] = []
+    @Published public var activeTabId: UUID?
+    
+    @Published public var controlMode: RemoteControlMode = .cursor
+    public static let defaultCustomUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    
+    @Published public var customUserAgentString: String = UserDefaults.standard.string(forKey: "CustomUserAgentString") ?? defaultCustomUserAgent {
+        didSet {
+            UserDefaults.standard.set(customUserAgentString, forKey: "CustomUserAgentString")
+            if currentUserAgent == .custom {
+                activeTab?.setUserAgent(currentUserAgent.value)
+                activeTab?.reload()
+            }
+        }
+    }
+    
+    @Published public var currentUserAgent: UserAgentType = .desktopSafari {
+        didSet {
+            activeTab?.setUserAgent(currentUserAgent.value)
+            activeTab?.reload()
+        }
+    }
+    @Published public var viewSize: CGSize = CGSize(width: 1920, height: 1080)
+    @Published public var cursorPosition: CGPoint = CGPoint(x: 960, y: 540)
+    @Published public var isTapping: Bool = false
+    
+    @Published public var presentMenu = true
+    @Published public var presentQuickMenu = false
+    
+    @Published public var favorites: [Favorite] = []
+    
+    private var activeTabCancellable: AnyCancellable?
+    private let favoritesKey = "BrowserFavorites"
+    
+    public var activeTab: BrowserTab? {
+        guard let id = activeTabId else { return tabs.first }
+        return tabs.first { $0.id == id }
+    }
+    
+    public var url: URL? { activeTab?.url }
+    public var isLoading: Bool { activeTab?.isLoading ?? false }
+    public var canGoBack: Bool { activeTab?.canGoBack ?? false }
+    public var canGoForward: Bool { activeTab?.canGoForward ?? false }
+    public var currentColor: Color? { activeTab?.currentColor }
+    public var estimatedProgress: Double { activeTab?.estimatedProgress ?? 0.0 }
+    
     private init() {
+        loadFavorites()
+        
+        let defaultTab = BrowserTab(initialURL: URL(string: "https://google.com"))
+        defaultTab.setUserAgent(currentUserAgent.value)
+        self.tabs = [defaultTab]
+        self.activeTabId = defaultTab.id
+        observeActiveTab()
+    }
+    
+    private func observeActiveTab() {
+        activeTabCancellable?.cancel()
+        if let current = activeTab {
+            activeTabCancellable = current.objectWillChange.sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+        }
+    }
+    
+    public func addNewTab(url: URL? = URL(string: "https://google.com")) {
+        let newTab = BrowserTab(initialURL: url)
+        newTab.setUserAgent(currentUserAgent.value)
+        tabs.append(newTab)
+        activeTabId = newTab.id
+        observeActiveTab()
+    }
+    
+    public func closeTab(id: UUID) {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        tabs.remove(at: index)
+        
+        if tabs.isEmpty {
+            addNewTab()
+        } else if activeTabId == id {
+            let nextIndex = min(index, tabs.count - 1)
+            activeTabId = tabs[nextIndex].id
+            observeActiveTab()
+        }
+    }
+    
+    public func selectTab(id: UUID) {
+        activeTabId = id
+        observeActiveTab()
+    }
+    
+    public func loadURL(_ url: URL) {
+        if let tab = activeTab {
+            tab.load(url: url)
+        } else {
+            addNewTab(url: url)
+        }
+    }
+    
+    public func reload() {
+        activeTab?.reload()
+    }
+    
+    public func goBack() {
+        activeTab?.goBack()
+    }
+    
+    public func goForward() {
+        activeTab?.goForward()
+    }
+    
+    public func updateViewSize(_ size: CGSize) {
+        guard size.width > 0 && size.height > 0 else { return }
+        let previousSize = viewSize
+        viewSize = size
+        
+        if cursorPosition == .zero || (previousSize.width == 1920 && previousSize.height == 1080 && size != previousSize) {
+            cursorPosition = CGPoint(x: size.width / 2.0, y: size.height / 2.0)
+        } else {
+            cursorPosition.x = min(max(20, cursorPosition.x), size.width - 20)
+            cursorPosition.y = min(max(20, cursorPosition.y), size.height - 20)
+        }
+    }
+    
+    public func moveCursor(by delta: CGSize) {
+        var newX = cursorPosition.x + delta.width
+        var newY = cursorPosition.y + delta.height
+        
+        let padding: CGFloat = 20.0
+        let minX = padding
+        let maxX = max(padding, viewSize.width - padding)
+        let minY = padding
+        let maxY = max(padding, viewSize.height - padding)
+        
+        if delta.height > 0 && cursorPosition.y >= maxY - 1.0 {
+            scrollActiveTab(dx: 0, dy: max(45, delta.height * 2.5))
+        } else if delta.height < 0 && cursorPosition.y <= minY + 1.0 {
+            scrollActiveTab(dx: 0, dy: min(-45, delta.height * 2.5))
+        }
+        
+        newX = min(max(minX, newX), maxX)
+        newY = min(max(minY, newY), maxY)
+        
+        cursorPosition = CGPoint(x: newX, y: newY)
+    }
+    
+    public func tapAtCursor() {
+        isTapping = true
+        activeTab?.clickAt(point: cursorPosition)
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            self.isTapping = false
+        }
+    }
+    
+    public func scrollActiveTab(dx: CGFloat, dy: CGFloat) {
+        activeTab?.scrollBy(dx: dx, dy: dy)
+    }
+    
+    public func sendRemoteKey(key: String, code: String, keyCode: Int) {
+        activeTab?.sendRemoteKey(key, code: code, keyCode: keyCode)
+    }
+    
+    public func addFavorite(title: String, url: URL) {
         Task {
-            await self.favorites.append(Favorite(title: "Google", url: URL(string: "https://google.com")!))
-            await self.favorites.append(Favorite(title: "MyPayIndia", url: URL(string: "https://mypayindia.com")!))
-            await self.favorites.append(Favorite(title: "YouTube", url: URL(string: "https://youtube.com")!))
-
-        }
-    }
-    static let shared = WebViewManager()
-    
-    @Published private(set) var url: URL?
-    @Published private(set) var isLoading = false
-    @Published var cursorOffset: CGSize = .zero
-    @Published var presentMenu = false
-    @Published var favorites: [Favorite] = []
-    @Published var currentColor: Color?
-    
-    var urlUpdateTask: Task<Void, Never>?
-    func loadURL(_ url: URL) {
-        // PLACEHOLDER
-        onURLUpdate(url)
-    }
-    func onURLUpdate(_ newURL: URL) {
-        urlUpdateTask?.cancel()
-        urlUpdateTask = nil
-        urlUpdateTask = Task {
-            withAnimation {
-                url = newURL
-            }
-            if url?.host() == newURL.host(), let color = try? await WebsiteColorParser.getColor(for: newURL.absoluteString) {
-                withAnimation {
-                    self.currentColor = Color(uiColor: color)
-                }
+            let fav = await Favorite(title: title, url: url)
+            await MainActor.run {
+                self.favorites.append(fav)
+                self.saveFavorites()
             }
         }
     }
-}
-
-struct WebViewContent: View {
-    @StateObject var manager = WebViewManager.shared
-    var body: some View {
-        VStack {
-            Button("Up") {
-                withAnimation {
-                    manager.cursorOffset.removing(CGSize(width: 0, height: 5))
-                }
-            }
-            HStack {
-                Button("Left") {
-                    withAnimation {
-                        manager.cursorOffset.removing(CGSize(width: 5, height: 0))
+    
+    public func removeFavorite(_ favorite: Favorite) {
+        favorites.removeAll { $0.id == favorite.id }
+        saveFavorites()
+    }
+    
+    public func updateFavorite(id: UUID, title: String, url: URL) {
+        guard let index = favorites.firstIndex(where: { $0.id == id }) else { return }
+        favorites[index].title = title
+        let urlChanged = favorites[index].url != url
+        favorites[index].url = url
+        if urlChanged {
+            favorites[index].cachedIcon = nil
+            favorites[index].color = nil
+            Task {
+                if let nativeColor = try? await WebsiteColorParser.getColor(for: url.absoluteString) {
+                    await MainActor.run {
+                        self.favorites[index].color = Color(uiColor: nativeColor)
+                        self.saveFavorites()
                     }
                 }
-                Button("Right") {
-                    withAnimation {
-                        manager.cursorOffset.adding(CGSize(width: 5, height: 0))
-                    }
+            }
+        }
+        saveFavorites()
+    }
+    
+    private func saveFavorites() {
+        if let data = try? JSONEncoder().encode(favorites) {
+            UserDefaults.standard.set(data, forKey: favoritesKey)
+        }
+    }
+    
+    private func loadFavorites() {
+        if let data = UserDefaults.standard.data(forKey: favoritesKey),
+           let saved = try? JSONDecoder().decode([Favorite].self, from: data), !saved.isEmpty {
+            self.favorites = saved
+        } else {
+            Task {
+                let google = await Favorite(title: "Google", url: URL(string: "https://google.com")!)
+                let youtube = await Favorite(title: "YouTube", url: URL(string: "https://youtube.com")!)
+                let apple = await Favorite(title: "Apple", url: URL(string: "https://apple.com")!)
+                await MainActor.run {
+                    self.favorites = [google, youtube, apple]
+                    self.saveFavorites()
                 }
             }
-            Button("Down") {
-                withAnimation {
-                    manager.cursorOffset.adding(CGSize(width: 0, height: 5))
-                }
-            }
-            Button("Menu") {
-                withAnimation {
-                    manager.presentMenu.toggle()
-                }
-            }
-           
-            Text("Placeholder, replace !!!")
         }
     }
 }
@@ -315,13 +727,13 @@ struct Favorite: Codable, Identifiable, Hashable {
         if let color {
             self.color = color
         } else if let nativeColor = try? await WebsiteColorParser.getColor(for: url.absoluteString) {
-            #if canImport(UIKit)
+#if canImport(UIKit)
             self.color = Color(uiColor: nativeColor)
-            #elseif canImport(AppKit)
+#elseif canImport(AppKit)
             self.color = Color(nsColor: nativeColor)
-            #else
+#else
             self.color = nil
-            #endif
+#endif
         } else {
             self.color = nil
         }
@@ -331,6 +743,7 @@ struct Favorite: Codable, Identifiable, Hashable {
 struct FavoriteButton: View {
     @Binding var favorite: Favorite
     @State var loadTask: Task<Void, Never>?
+    @State private var showingEditSheet = false
     
     var body: some View {
         Button(action: {
@@ -342,11 +755,11 @@ struct FavoriteButton: View {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 50, height: 50)
+                        .frame(width: 48, height: 48)
                 } else {
                     Circle()
                         .foregroundStyle(.gray.opacity(0.25))
-                        .frame(width: 50, height: 50)
+                        .frame(width: 48, height: 48)
                         .overlay {
                             if let firstLetter = favorite.title.first {
                                 Text(String(firstLetter))
@@ -367,6 +780,24 @@ struct FavoriteButton: View {
                 RoundedRectangle(cornerRadius: 17.5)
                     .foregroundStyle(color)
             }
+        }
+        .contextMenu {
+            Button {
+                showingEditSheet = true
+            } label: {
+                Label("Edit", systemImage: "pencil")
+            }
+            
+            Button(role: .destructive) {
+                withAnimation {
+                    WebViewManager.shared.removeFavorite(favorite)
+                }
+            } label: {
+                Label("Remove", systemImage: "trash")
+            }
+        }
+        .sheet(isPresented: $showingEditSheet) {
+            EditFavoriteSheet(favorite: $favorite, manager: WebViewManager.shared)
         }
         .onChange(of: favorite.url) {
             loadTask?.cancel()
@@ -399,6 +830,68 @@ struct FavoriteButton: View {
                 }
             }
         }
+    }
+}
+
+struct EditFavoriteSheet: View {
+    @Binding var favorite: Favorite
+    @ObservedObject var manager: WebViewManager
+    @Environment(\.dismiss) var dismiss
+    
+    @State private var title: String = ""
+    @State private var urlString: String = ""
+    @State private var errorMessage: String?
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(header: Text("Website Information")) {
+                    TextField("Title", text: $title)
+                    TextField("URL", text: $urlString)
+                        .textContentType(.URL)
+                        .keyboardType(.URL)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                }
+                
+                if let error = errorMessage {
+                    Section {
+                        Text(error)
+                            .foregroundStyle(.red)
+                    }
+                }
+                
+                Section {
+                    Button("Save Changes") {
+                        saveChanges()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    
+                    Button("Cancel", role: .cancel) {
+                        dismiss()
+                    }
+                }
+            }
+            .navigationTitle("Edit Favorite")
+            .onAppear {
+                title = favorite.title
+                urlString = favorite.url.absoluteString
+            }
+        }
+    }
+    
+    private func saveChanges() {
+        let trimmedURL = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let validURL = URL(string: trimmedURL), validURL.scheme != nil else {
+            errorMessage = "Please enter a valid URL with http:// or https://"
+            return
+        }
+        
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayTitle = trimmedTitle.isEmpty ? (validURL.host ?? trimmedURL) : trimmedTitle
+        
+        manager.updateFavorite(id: favorite.id, title: displayTitle, url: validURL)
+        dismiss()
     }
 }
 
