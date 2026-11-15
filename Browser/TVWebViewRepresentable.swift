@@ -49,8 +49,23 @@ final class TVWebViewController: UIViewController, UIGestureRecognizerDelegate {
         fatalError("init(coder:) has not been implemented")
     }
     
-    override var canBecomeFirstResponder: Bool {
+    private var isWebInteractionActive: Bool {
+        if manager.presentMenu || manager.presentQuickMenu || manager.presentKeyboard {
+            return false
+        }
+        if presentedViewController != nil || view.window?.rootViewController?.presentedViewController != nil {
+            return false
+        }
+        if let focusedView = UIFocusSystem.focusSystem(for: view)?.focusedItem as? UIView {
+            if !focusedView.isDescendant(of: view) && !view.isDescendant(of: focusedView) && focusedView !== view {
+                return false
+            }
+        }
         return true
+    }
+    
+    override var canBecomeFirstResponder: Bool {
+        return isWebInteractionActive
     }
     
     override func viewDidLoad() {
@@ -75,8 +90,21 @@ final class TVWebViewController: UIViewController, UIGestureRecognizerDelegate {
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        becomeFirstResponder()
+        updatePanGestureState()
         manager.updateViewSize(view.bounds.size)
+    }
+    
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        stopDirectionalMovement()
+        if isFirstResponder {
+            resignFirstResponder()
+        }
+    }
+    
+    override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
+        super.didUpdateFocus(in: context, with: coordinator)
+        updatePanGestureState()
     }
     
     func updateActiveTab() {
@@ -92,21 +120,29 @@ final class TVWebViewController: UIViewController, UIGestureRecognizerDelegate {
     }
     
     func updatePanGestureState() {
-        if manager.presentMenu {
+        if !isWebInteractionActive {
             stopDirectionalMovement()
+            panGesture?.isEnabled = false
+            if isFirstResponder {
+                resignFirstResponder()
+            }
+        } else {
+            panGesture?.isEnabled = true
+            if !isFirstResponder && canBecomeFirstResponder {
+                becomeFirstResponder()
+            }
         }
-        panGesture?.isEnabled = !manager.presentMenu
     }
     
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        if gestureRecognizer === panGesture && manager.presentMenu {
+        if gestureRecognizer === panGesture && !isWebInteractionActive {
             return false
         }
         return true
     }
     
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
-        guard !manager.presentMenu else { return }
+        guard isWebInteractionActive else { return }
         let translation = gesture.translation(in: view)
         gesture.setTranslation(.zero, in: view)
         
@@ -135,8 +171,17 @@ final class TVWebViewController: UIViewController, UIGestureRecognizerDelegate {
     }
     
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        guard isWebInteractionActive else {
+            super.pressesBegan(presses, with: event)
+            return
+        }
+        
         for press in presses {
             switch press.type {
+            case .select:
+                if manager.controlMode != .scroll {
+                    return
+                }
             case .upArrow:
                 startDirectionalMovement(dx: 0, dy: -1)
                 return
@@ -183,6 +228,11 @@ final class TVWebViewController: UIViewController, UIGestureRecognizerDelegate {
     }
     
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        guard isWebInteractionActive else {
+            super.pressesEnded(presses, with: event)
+            return
+        }
+        
         for press in presses {
             switch press.type {
             case .upArrow, .downArrow, .leftArrow, .rightArrow:
@@ -192,12 +242,13 @@ final class TVWebViewController: UIViewController, UIGestureRecognizerDelegate {
                 switch manager.controlMode {
                 case .cursor:
                     manager.tapAtCursor()
+                    return
                 case .scroll:
                     break
                 case .tvRemote:
                     manager.sendRemoteKey(key: "Enter", code: "Enter", keyCode: 13)
+                    return
                 }
-                return
             case .playPause:
                 playPauseTimer?.invalidate()
                 playPauseTimer = nil
@@ -257,6 +308,7 @@ final class TVWebViewController: UIViewController, UIGestureRecognizerDelegate {
     }
     
     private func startDirectionalMovement(dx: CGFloat, dy: CGFloat) {
+        guard isWebInteractionActive else { return }
         stopDirectionalMovement()
         activeDirection = (dx, dy)
         stepDirectionalMovement()

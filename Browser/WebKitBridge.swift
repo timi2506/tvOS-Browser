@@ -166,6 +166,10 @@ final class WebKitBridge {
             var x = \(x);
             var y = \(y);
             var el = document.elementFromPoint(x, y);
+            if (el && el.shadowRoot && typeof el.shadowRoot.elementFromPoint === 'function') {
+                var shadowEl = el.shadowRoot.elementFromPoint(x, y);
+                if (shadowEl) el = shadowEl;
+            }
             if (!el || el === document.body || el === document.documentElement) {
                 var searchOffsets = [
                     [0, -8], [0, 8], [-8, 0], [8, 0],
@@ -174,12 +178,45 @@ final class WebKitBridge {
                 for (var i = 0; i < searchOffsets.length; i++) {
                     var candidate = document.elementFromPoint(x + searchOffsets[i][0], y + searchOffsets[i][1]);
                     if (candidate && candidate !== document.body && candidate !== document.documentElement) {
-                        el = candidate;
-                        break;
+                        var cTag = (candidate.tagName || '').toUpperCase();
+                        if (cTag !== 'INPUT' && cTag !== 'TEXTAREA' && !candidate.isContentEditable && cTag !== 'LABEL') {
+                            el = candidate;
+                            break;
+                        }
                     }
                 }
             }
             if (!el) return JSON.stringify({ isTextInput: false, value: '', placeholder: '' });
+
+            function isInputElem(elem) {
+                if (!elem) return false;
+                var tag = (elem.tagName || '').toUpperCase();
+                if (tag === 'TEXTAREA' || elem.isContentEditable) return true;
+                if (tag === 'INPUT') {
+                    var type = (elem.getAttribute('type') || 'text').toLowerCase();
+                    return !['button', 'submit', 'checkbox', 'radio', 'image', 'reset', 'file', 'hidden'].includes(type);
+                }
+                return false;
+            }
+
+            function findDirectTextInput(elem, px, py) {
+                if (!elem) return null;
+                var current = elem;
+                while (current && current !== document.body && current !== document.documentElement) {
+                    if (isInputElem(current)) {
+                        var rect = current.getBoundingClientRect();
+                        if (px >= rect.left && px <= rect.right && py >= rect.top && py <= rect.bottom) {
+                            return current;
+                        }
+                        return null;
+                    }
+                    current = current.parentElement;
+                }
+                return null;
+            }
+
+            var directInput = findDirectTextInput(el, x, y);
+
             var target = (el.closest && el.closest('a, button, input, textarea, select, [role="button"], [role="link"], [role="tab"], [tabindex], label')) || el;
             if (typeof target.focus === 'function') {
                 target.focus();
@@ -201,24 +238,24 @@ final class WebKitBridge {
             if (typeof target.click === 'function') {
                 target.click();
             }
-            var active = document.activeElement || target;
-            var isTextInput = false;
+
+            if (!directInput && document.activeElement && isInputElem(document.activeElement)) {
+                var activeRect = document.activeElement.getBoundingClientRect();
+                if (!(x >= activeRect.left && x <= activeRect.right && y >= activeRect.top && y <= activeRect.bottom)) {
+                    if (typeof document.activeElement.blur === 'function') {
+                        document.activeElement.blur();
+                    }
+                } else {
+                    directInput = document.activeElement;
+                }
+            }
+
+            var isTextInput = directInput !== null;
             var val = '';
             var placeholder = '';
-            if (active) {
-                var tag = (active.tagName || '').toUpperCase();
-                if (tag === 'TEXTAREA' || active.isContentEditable) {
-                    isTextInput = true;
-                    val = active.value || active.innerText || '';
-                    placeholder = active.getAttribute('placeholder') || '';
-                } else if (tag === 'INPUT') {
-                    var type = (active.getAttribute('type') || 'text').toLowerCase();
-                    if (!['button', 'submit', 'checkbox', 'radio', 'image', 'reset', 'file', 'hidden'].includes(type)) {
-                        isTextInput = true;
-                        val = active.value || '';
-                        placeholder = active.getAttribute('placeholder') || '';
-                    }
-                }
+            if (isTextInput && directInput) {
+                val = directInput.value || directInput.innerText || '';
+                placeholder = directInput.getAttribute('placeholder') || directInput.getAttribute('aria-label') || '';
             }
             return JSON.stringify({
                 isTextInput: isTextInput,
