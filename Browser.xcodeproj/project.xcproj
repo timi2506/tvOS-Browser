@@ -26,8 +26,21 @@
     },
   ],
   "files": [
-    { "kind": "folder", "path": "Browser", "target-membership": [ "Browser" ] },
     {
+      "kind": "folder",
+      "path": "Browser",
+      "target-membership": [
+        "Browser",
+      ],
+      "membership-exceptions": [
+        {
+          "target": "Browser",
+          "exclusions": [
+            "Info.plist",
+          ],
+        },
+      ],
+    }, {
       "kind": "group",
       "name": "Products",
       "children": [
@@ -65,6 +78,7 @@
         "DEVELOPMENT_TEAM": "",
         "ENABLE_PREVIEWS": "YES",
         "GENERATE_INFOPLIST_FILE": "YES",
+        "INFOPLIST_FILE": "Browser/Info.plist",
         "INFOPLIST_KEY_GCSupportsControllerUserInteraction": "YES",
         "INFOPLIST_KEY_GCSupportsMouseAndKeyboard": "YES",
         "INFOPLIST_KEY_LSApplicationQueriesSchemes": "airdropper",
