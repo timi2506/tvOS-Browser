@@ -71,6 +71,12 @@ struct QuickMenuView: View {
                             manager.presentKeyboardPrompt()
                         }
                         .buttonStyle(.bordered)
+                        
+                        Button("Simulate Enter", systemImage: "return") {
+                            dismiss()
+                            manager.simulateEnter()
+                        }
+                        .buttonStyle(.bordered)
                         Button("Add to Favorites", systemImage: "star") {
                             showingFavoriteSheet = true
                         }

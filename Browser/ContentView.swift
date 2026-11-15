@@ -880,6 +880,18 @@ class WebViewManager: ObservableObject {
         saveTabsState()
     }
     
+    public func selectPreviousTab() {
+        guard tabs.count > 1, let currentIndex = tabs.firstIndex(where: { $0.id == activeTabId }) else { return }
+        let prevIndex = (currentIndex - 1 + tabs.count) % tabs.count
+        selectTab(id: tabs[prevIndex].id)
+    }
+    
+    public func selectNextTab() {
+        guard tabs.count > 1, let currentIndex = tabs.firstIndex(where: { $0.id == activeTabId }) else { return }
+        let nextIndex = (currentIndex + 1) % tabs.count
+        selectTab(id: tabs[nextIndex].id)
+    }
+    
     public func loadURL(_ url: URL) {
         if let tab = activeTab {
             tab.load(url: url)
@@ -969,6 +981,10 @@ class WebViewManager: ObservableObject {
     
     public func submitKeyboardText(_ text: String, pressEnter: Bool = true) {
         activeTab?.submitKeyboardText(text, pressEnter: pressEnter)
+    }
+    
+    public func simulateEnter() {
+        activeTab?.simulateEnter()
     }
     
     public func addFavorite(title: String, url: URL) {

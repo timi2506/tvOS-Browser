@@ -128,10 +128,14 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
         }
         let js = """
         (function() {
-            var el = document.activeElement;
+            var el = window.__lastFocusedInput || document.activeElement;
             if (!el || el === document.body || el === document.documentElement) {
-                var inputs = document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), textarea');
-                if (inputs.length > 0) el = inputs[0];
+                if (window.__lastFocusedInput && document.contains(window.__lastFocusedInput)) {
+                    el = window.__lastFocusedInput;
+                } else {
+                    var inputs = document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), textarea');
+                    if (inputs.length > 0) el = inputs[0];
+                }
             }
             var placeholder = (el && el.getAttribute('placeholder')) || (el && el.getAttribute('aria-label')) || '';
             var val = (el && (el.value || el.innerText)) || '';
@@ -157,28 +161,154 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
                           .replacingOccurrences(of: "\r", with: "\\r")
         let js = """
         (function() {
-            var el = document.activeElement;
+            var el = window.__lastFocusedInput || document.activeElement;
             if (!el || el === document.body || el === document.documentElement) {
-                var inputs = document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), textarea');
-                if (inputs.length > 0) el = inputs[0];
+                if (window.__lastFocusedInput && document.contains(window.__lastFocusedInput)) {
+                    el = window.__lastFocusedInput;
+                } else {
+                    var inputs = document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]), textarea, [contenteditable="true"]');
+                    if (inputs.length > 0) el = inputs[0];
+                }
             }
             if (!el) return false;
             if (typeof el.focus === 'function') el.focus();
-            if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
-                el.value = '\(escaped)';
-                el.dispatchEvent(new Event('input', { bubbles: true }));
+
+            var text = '\(escaped)';
+            var tag = (el.tagName || '').toUpperCase();
+
+            if (tag === 'INPUT' || tag === 'TEXTAREA') {
+                if (typeof el.select === 'function') {
+                    try { el.select(); } catch(e) {}
+                }
+                var inserted = false;
+                try {
+                    inserted = document.execCommand('insertText', false, text);
+                } catch(e) {}
+
+                if (!inserted || el.value !== text) {
+                    var proto = Object.getPrototypeOf(el);
+                    var setter = Object.getOwnPropertyDescriptor(proto, 'value') ? Object.getOwnPropertyDescriptor(proto, 'value').set : null;
+                    if (setter) {
+                        setter.call(el, text);
+                    } else {
+                        el.value = text;
+                    }
+                    if (el._valueTracker) {
+                        el._valueTracker.setValue('');
+                    }
+                }
+                try {
+                    el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: text }));
+                    el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+                } catch(e) {
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                }
                 el.dispatchEvent(new Event('change', { bubbles: true }));
             } else if (el.isContentEditable) {
-                el.innerText = '\(escaped)';
-                el.dispatchEvent(new Event('input', { bubbles: true }));
+                try {
+                    var sel = window.getSelection();
+                    var range = document.createRange();
+                    range.selectNodeContents(el);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                    if (!document.execCommand('insertText', false, text)) {
+                        el.innerText = text;
+                    }
+                } catch(e) {
+                    el.innerText = text;
+                }
+                try {
+                    el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+                } catch(e) {
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                }
             }
+
             if (\(pressEnter)) {
-                var enterDown = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true });
-                el.dispatchEvent(enterDown);
-                var enterUp = new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true });
-                el.dispatchEvent(enterUp);
-                if (el.form && typeof el.form.submit === 'function') {
-                    el.form.submit();
+                var down = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, view: window });
+                try {
+                    Object.defineProperty(down, 'keyCode', { get: function() { return 13; } });
+                    Object.defineProperty(down, 'which', { get: function() { return 13; } });
+                } catch(e) {}
+                var notPrevented = el.dispatchEvent(down);
+
+                var press = new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, view: window });
+                try {
+                    Object.defineProperty(press, 'keyCode', { get: function() { return 13; } });
+                    Object.defineProperty(press, 'which', { get: function() { return 13; } });
+                } catch(e) {}
+                el.dispatchEvent(press);
+
+                var up = new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, view: window });
+                try {
+                    Object.defineProperty(up, 'keyCode', { get: function() { return 13; } });
+                    Object.defineProperty(up, 'which', { get: function() { return 13; } });
+                } catch(e) {}
+                el.dispatchEvent(up);
+
+                if (notPrevented && el.form) {
+                    if (typeof el.form.requestSubmit === 'function') {
+                        try {
+                            el.form.requestSubmit();
+                        } catch(e) {
+                            el.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+                        }
+                    } else {
+                        var submitEvt = new Event('submit', { bubbles: true, cancelable: true });
+                        if (el.form.dispatchEvent(submitEvt)) {
+                            if (typeof el.form.submit === 'function') {
+                                el.form.submit();
+                            }
+                        }
+                    }
+                }
+            }
+            return true;
+        })();
+        """
+        WebKitBridge.evaluateJavaScript(js, on: wv)
+    }
+    
+    func simulateEnter() {
+        guard let wv = webView else { return }
+        let js = """
+        (function() {
+            var el = window.__lastFocusedInput || document.activeElement || document.body;
+            var down = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, view: window });
+            try {
+                Object.defineProperty(down, 'keyCode', { get: function() { return 13; } });
+                Object.defineProperty(down, 'which', { get: function() { return 13; } });
+            } catch(e) {}
+            var notPrevented = el.dispatchEvent(down);
+
+            var press = new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, view: window });
+            try {
+                Object.defineProperty(press, 'keyCode', { get: function() { return 13; } });
+                Object.defineProperty(press, 'which', { get: function() { return 13; } });
+            } catch(e) {}
+            el.dispatchEvent(press);
+
+            var up = new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, view: window });
+            try {
+                Object.defineProperty(up, 'keyCode', { get: function() { return 13; } });
+                Object.defineProperty(up, 'which', { get: function() { return 13; } });
+            } catch(e) {}
+            el.dispatchEvent(up);
+
+            if (notPrevented && el.form) {
+                if (typeof el.form.requestSubmit === 'function') {
+                    try {
+                        el.form.requestSubmit();
+                    } catch(e) {
+                        el.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+                    }
+                } else {
+                    var submitEvt = new Event('submit', { bubbles: true, cancelable: true });
+                    if (el.form.dispatchEvent(submitEvt)) {
+                        if (typeof el.form.submit === 'function') {
+                            el.form.submit();
+                        }
+                    }
                 }
             }
             return true;
@@ -255,6 +385,7 @@ final class TabKVOHelper: NSObject {
                     if !isLoading || tab.estimatedProgress >= 0.95 {
                         tab.isLoading = false
                         tab.estimatedProgress = 1.0
+                        GameControllerManager.shared.syncAllControllers()
                     } else {
                         tab.isLoading = true
                     }

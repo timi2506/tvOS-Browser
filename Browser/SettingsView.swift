@@ -44,6 +44,7 @@ struct SettingsView: View {
     @ObservedObject var manager: WebViewManager
     @ObservedObject var historyManager = HistoryManager.shared
     @ObservedObject var fileServer = FileServerManager.shared
+    @ObservedObject var controllerManager = GameControllerManager.shared
     @Environment(\.dismiss) private var dismiss
     @State private var showingCustomUASheet = false
     @State private var showingOnboarding = false
@@ -168,6 +169,34 @@ struct SettingsView: View {
                             }
                         ))
                         .labelsHidden()
+                    }
+                    
+                    Divider()
+                    
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Game Controllers")
+                                .bold()
+                            Text(controllerManager.connectedNamesDescription)
+                                .font(.caption)
+                                .foregroundStyle(controllerManager.connectedControllers.isEmpty ? Color.secondary : Color.green)
+                        }
+                        Spacer()
+                    }
+                    
+                    Divider()
+                    
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Controller Browser Navigation")
+                                .bold()
+                            Text("Thumbstick moves cursor and buttons navigate when not in a game")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Toggle("", isOn: $controllerManager.controllerNavigationEnabled)
+                            .labelsHidden()
                     }
                     
                     Divider()

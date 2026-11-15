@@ -35,7 +35,7 @@ struct KeyboardInputSheet: View {
                         }
                         .buttonStyle(.bordered)
                         
-                        Button("Type (No Enter)", systemImage: "text.cursor") {
+                        Button("Just Type", systemImage: "text.cursor") {
                             manager.submitKeyboardText(text, pressEnter: false)
                             dismiss()
                         }

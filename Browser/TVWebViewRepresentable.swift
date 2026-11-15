@@ -7,6 +7,7 @@
 
 import UIKit
 import SwiftUI
+import GameController
 
 struct TVWebViewRepresentable: UIViewControllerRepresentable {
     @ObservedObject var manager: WebViewManager
@@ -26,7 +27,7 @@ struct TVWebViewRepresentable: UIViewControllerRepresentable {
     }
 }
 
-final class TVWebViewController: UIViewController, UIGestureRecognizerDelegate {
+final class TVWebViewController: GCEventViewController, UIGestureRecognizerDelegate {
     private let manager: WebViewManager
     private var currentWebView: UIView?
     private var panGesture: UIPanGestureRecognizer?
@@ -70,6 +71,7 @@ final class TVWebViewController: UIViewController, UIGestureRecognizerDelegate {
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        controllerUserInteractionEnabled = false
         view.backgroundColor = .black
         edgesForExtendedLayout = .all
         extendedLayoutIncludesOpaqueBars = true
@@ -116,10 +118,12 @@ final class TVWebViewController: UIViewController, UIGestureRecognizerDelegate {
             tab.webView.frame = view.bounds
             tab.webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             view.addSubview(tab.webView)
+            GameControllerManager.shared.updateActiveWebView(tab.webView)
         }
     }
     
     func updatePanGestureState() {
+        controllerUserInteractionEnabled = !isWebInteractionActive
         if !isWebInteractionActive {
             stopDirectionalMovement()
             panGesture?.isEnabled = false

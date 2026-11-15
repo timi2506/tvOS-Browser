@@ -55,6 +55,21 @@ final class WebKitBridge {
             config.setValue(true, forKey: "allowsInlineMediaPlayback")
             config.setValue(0, forKey: "mediaTypesRequiringUserActionForPlayback")
             
+            if let ucc = config.value(forKey: "userContentController") as? NSObject,
+               let userScriptClass = NSClassFromString("WKUserScript") as? NSObject.Type {
+                let source = GameControllerManager.shared.polyfillScript
+                let scriptSel = NSSelectorFromString("initWithSource:injectionTime:forMainFrameOnly:")
+                let allocSel = NSSelectorFromString("alloc")
+                if let allocObj = (userScriptClass as AnyObject).perform(allocSel)?.takeUnretainedValue() {
+                    typealias InitFunc = @convention(c) (AnyObject, Selector, NSString, Int, Bool) -> AnyObject
+                    let method = allocObj.method(for: scriptSel)
+                    let callable = unsafeBitCast(method, to: InitFunc.self)
+                    let scriptObj = callable(allocObj, scriptSel, source as NSString, 0, false)
+                    let addSel = NSSelectorFromString("addUserScript:")
+                    _ = ucc.perform(addSel, with: scriptObj)
+                }
+            }
+            
             let sel = NSSelectorFromString("initWithFrame:configuration:")
             if let allocSel = NSSelectorFromString("alloc") as Selector?,
                let allocObj = (cls as AnyObject).perform(allocSel)?.takeUnretainedValue() {
@@ -72,6 +87,8 @@ final class WebKitBridge {
         } else {
             view = cls.init(frame: frame)
         }
+        
+        GameControllerManager.shared.updateActiveWebView(view)
         
         let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
         view.setValue(userAgent, forKey: "customUserAgent")
@@ -254,6 +271,7 @@ final class WebKitBridge {
             var val = '';
             var placeholder = '';
             if (isTextInput && directInput) {
+                window.__lastFocusedInput = directInput;
                 val = directInput.value || directInput.innerText || '';
                 placeholder = directInput.getAttribute('placeholder') || directInput.getAttribute('aria-label') || '';
             }
