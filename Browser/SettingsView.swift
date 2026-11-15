@@ -45,6 +45,7 @@ struct SettingsView: View {
     @ObservedObject var historyManager = HistoryManager.shared
     @ObservedObject var fileServer = FileServerManager.shared
     @ObservedObject var controllerManager = GameControllerManager.shared
+    @ObservedObject var nativeInput = NativeInputManager.shared
     @Environment(\.dismiss) private var dismiss
     @State private var showingCustomUASheet = false
     @State private var showingOnboarding = false
@@ -188,6 +189,22 @@ struct SettingsView: View {
                     
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
+                            Text("Keyboard & Mouse")
+                                .bold()
+                            Text(nativeInput.hardwareStatusDescription)
+                                .font(.caption)
+                                .foregroundStyle((nativeInput.isMouseConnected || nativeInput.hasHardwareKeyboard) ? Color.green : Color.secondary)
+                            Text("Pair Bluetooth mouse or keyboard in Settings > Remotes and Devices > Bluetooth")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                    
+                    Divider()
+                    
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
                             Text("Controller Browser Navigation")
                                 .bold()
                             Text("Thumbstick moves cursor and buttons navigate when not in a game")
@@ -233,6 +250,9 @@ struct SettingsView: View {
             }
         }
         .frame(width: 1200, height: 900)
+        .onAppear {
+            nativeInput.checkForConnectedDevices()
+        }
         .sheet(isPresented: $showingCustomUASheet) {
             CustomUserAgentSheet(manager: manager)
         }

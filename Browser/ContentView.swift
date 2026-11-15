@@ -105,6 +105,29 @@ struct ContentView: View {
             }
             .ignoresSafeArea()
         }
+        .overlay {
+            if manager.controlMode == .cursor {
+                Circle()
+                    .frame(width: 44, height: 44)
+                    .foregroundStyle(.regularMaterial)
+                    .opacity(0.85)
+                    .scaleEffect(manager.isTapping ? 0.75 : 1.0)
+                    .overlay {
+                        Circle()
+                            .frame(width: 8, height: 8)
+                            .foregroundStyle(manager.isTapping ? Color.accentColor : Color.white)
+                            .blur(radius: manager.isTapping ? 1 : 3)
+                    }
+                    .overlay {
+                        Circle()
+                            .stroke(manager.isTapping ? Color.accentColor : Color.white.opacity(0.4), lineWidth: 1.5)
+                            .frame(width: 44, height: 44)
+                    }
+                    .animation(.easeOut(duration: 0.12), value: manager.isTapping)
+                    .position(manager.cursorPosition)
+                    .allowsHitTesting(false)
+            }
+        }
         .ignoresSafeArea()
         .sheet(isPresented: $manager.presentQuickMenu) {
             QuickMenuView(manager: manager, showingSettings: $showingSettings)
@@ -115,6 +138,12 @@ struct ContentView: View {
         }
         .fullScreenCover(isPresented: $manager.presentKeyboard) {
             KeyboardInputSheet(manager: manager)
+        }
+        .fullScreenCover(isPresented: $manager.presentSearchSheet) {
+            SearchView(urlBarURL: manager.url?.absoluteString ?? "") {
+                manager.loadURL($0)
+                manager.presentSearchSheet = false
+            }
         }
         .sheet(isPresented: $showingOnboarding) {
             OnboardingView {
@@ -331,27 +360,7 @@ struct ContentView: View {
                         .frame(height: 4)
                         .frame(maxWidth: .infinity)
                 }
-                
-                if manager.controlMode == .cursor {
-                    Circle()
-                        .frame(width: 44, height: 44)
-                        .foregroundStyle(.regularMaterial)
-                        .opacity(0.85)
-                        .scaleEffect(manager.isTapping ? 0.75 : 1.0)
-                        .overlay {
-                            Circle()
-                                .frame(width: 8, height: 8)
-                                .foregroundStyle(manager.isTapping ? Color.accentColor : Color.white)
-                                .blur(radius: manager.isTapping ? 1 : 3)
-                        }
-                        .overlay {
-                            Circle()
-                                .stroke(manager.isTapping ? Color.accentColor : Color.white.opacity(0.4), lineWidth: 1.5)
-                                .frame(width: 44, height: 44)
-                        }
-                        .animation(.easeOut(duration: 0.12), value: manager.isTapping)
-                        .position(manager.cursorPosition)
-                }
+
             }
             .overlay(alignment: .bottomTrailing) {
                 if !downloadManager.activeDownloads.isEmpty {
@@ -741,6 +750,7 @@ class WebViewManager: ObservableObject {
     }
     
     @Published public var presentKeyboard: Bool = false
+    @Published public var presentSearchSheet: Bool = false
     @Published public var keyboardInputText: String = ""
     @Published public var keyboardPlaceholder: String = ""
     
@@ -793,6 +803,7 @@ class WebViewManager: ObservableObject {
         }
         tab.onTextInputFocused = { [weak self] placeholder, value in
             guard let self = self, self.autoKeyboardDetection else { return }
+            if NativeInputManager.shared.hasHardwareKeyboard { return }
             self.keyboardPlaceholder = placeholder
             self.keyboardInputText = value
             self.presentKeyboard = true
@@ -990,6 +1001,24 @@ class WebViewManager: ObservableObject {
     
     public func simulateEnter() {
         activeTab?.simulateEnter()
+    }
+    
+    public func zoomIn() {
+        activeTab?.zoomIn()
+    }
+    
+    public func zoomOut() {
+        activeTab?.zoomOut()
+    }
+    
+    public func resetZoom() {
+        activeTab?.resetZoom()
+    }
+    
+    public func addActiveTabToFavorites() {
+        guard let url = activeTab?.url else { return }
+        let title = (activeTab?.title.isEmpty == false) ? (activeTab?.title ?? "Favorite") : (url.host ?? "Favorite")
+        addFavorite(title: title, url: url)
     }
     
     public func addFavorite(title: String, url: URL) {

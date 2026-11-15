@@ -17,6 +17,7 @@ struct TVWebViewRepresentable: UIViewControllerRepresentable {
     }
     
     func makeUIViewController(context: Context) -> TVWebViewController {
+        NativeInputManager.shared.start(with: manager)
         let controller = TVWebViewController(manager: manager)
         return controller
     }
@@ -71,12 +72,14 @@ final class TVWebViewController: GCEventViewController, UIGestureRecognizerDeleg
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        NativeInputManager.shared.start(with: manager)
         controllerUserInteractionEnabled = false
         view.backgroundColor = .black
         edgesForExtendedLayout = .all
         extendedLayoutIncludesOpaqueBars = true
         
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        pan.cancelsTouchesInView = false
         pan.delegate = self
         view.addGestureRecognizer(pan)
         self.panGesture = pan
@@ -174,61 +177,153 @@ final class TVWebViewController: GCEventViewController, UIGestureRecognizerDeleg
         }
     }
     
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard isWebInteractionActive, let touch = touches.first else {
+            super.touchesBegan(touches, with: event)
+            return
+        }
+        #if targetEnvironment(simulator)
+        let isPointer = true
+        #else
+        let isPointer = (touch.type == .indirectPointer)
+        #endif
+        if isPointer {
+            NativeInputManager.shared.markMouseConnected()
+            let loc = touch.location(in: view)
+            manager.cursorPosition = loc
+            if manager.controlMode != .cursor {
+                manager.controlMode = .cursor
+            }
+            manager.activeTab?.mouseDown(at: loc, button: 0)
+            return
+        }
+        super.touchesBegan(touches, with: event)
+    }
+    
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard isWebInteractionActive, let touch = touches.first else {
+            super.touchesMoved(touches, with: event)
+            return
+        }
+        #if targetEnvironment(simulator)
+        let isPointer = true
+        #else
+        let isPointer = (touch.type == .indirectPointer)
+        #endif
+        if isPointer {
+            NativeInputManager.shared.markMouseConnected()
+            let loc = touch.location(in: view)
+            manager.cursorPosition = loc
+            manager.activeTab?.mouseMoved(to: loc, buttons: 1)
+            return
+        }
+        super.touchesMoved(touches, with: event)
+    }
+    
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard isWebInteractionActive, let touch = touches.first else {
+            super.touchesEnded(touches, with: event)
+            return
+        }
+        #if targetEnvironment(simulator)
+        let isPointer = true
+        #else
+        let isPointer = (touch.type == .indirectPointer)
+        #endif
+        if isPointer {
+            let loc = touch.location(in: view)
+            manager.cursorPosition = loc
+            manager.activeTab?.mouseUp(at: loc, button: 0, isHardwareMouse: true)
+            return
+        }
+        super.touchesEnded(touches, with: event)
+    }
+    
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard isWebInteractionActive, let touch = touches.first else {
+            super.touchesCancelled(touches, with: event)
+            return
+        }
+        #if targetEnvironment(simulator)
+        let isPointer = true
+        #else
+        let isPointer = (touch.type == .indirectPointer)
+        #endif
+        if isPointer {
+            let loc = touch.location(in: view)
+            manager.cursorPosition = loc
+            manager.activeTab?.mouseUp(at: loc, button: 0, isHardwareMouse: true)
+            return
+        }
+        super.touchesCancelled(touches, with: event)
+    }
+    
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         guard isWebInteractionActive else {
             super.pressesBegan(presses, with: event)
             return
         }
         
+        var unhandledPresses: Set<UIPress> = []
         for press in presses {
-            switch press.type {
-            case .select:
-                if manager.controlMode != .scroll {
-                    return
+            if let key = press.key {
+                NativeInputManager.shared.markKeyboardConnected()
+                if handleHardwareKeyPress(key, isKeyUp: false) {
+                    continue
                 }
-            case .upArrow:
-                startDirectionalMovement(dx: 0, dy: -1)
-                return
-            case .downArrow:
-                startDirectionalMovement(dx: 0, dy: 1)
-                return
-            case .leftArrow:
-                startDirectionalMovement(dx: -1, dy: 0)
-                return
-            case .rightArrow:
-                startDirectionalMovement(dx: 1, dy: 0)
-                return
-            case .playPause:
-                handledPlayPauseLongPress = false
-                playPauseTimer?.invalidate()
-                playPauseTimer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: false) { [weak self] _ in
-                    guard let self = self else { return }
-                    self.handledPlayPauseLongPress = true
-                    DispatchQueue.main.async {
-                        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                            self.manager.presentMenu.toggle()
+            } else {
+                switch press.type {
+                case .select:
+                    if manager.controlMode != .scroll {
+                        continue
+                    }
+                case .upArrow:
+                    startDirectionalMovement(dx: 0, dy: -1)
+                    continue
+                case .downArrow:
+                    startDirectionalMovement(dx: 0, dy: 1)
+                    continue
+                case .leftArrow:
+                    startDirectionalMovement(dx: -1, dy: 0)
+                    continue
+                case .rightArrow:
+                    startDirectionalMovement(dx: 1, dy: 0)
+                    continue
+                case .playPause:
+                    handledPlayPauseLongPress = false
+                    playPauseTimer?.invalidate()
+                    playPauseTimer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: false) { [weak self] _ in
+                        guard let self = self else { return }
+                        self.handledPlayPauseLongPress = true
+                        DispatchQueue.main.async {
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                                self.manager.presentMenu.toggle()
+                            }
                         }
                     }
-                }
-                return
-            case .menu:
-                handledLongPress = false
-                backTimer?.invalidate()
-                backTimer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: false) { [weak self] _ in
-                    guard let self = self else { return }
-                    self.handledLongPress = true
-                    DispatchQueue.main.async {
-                        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                            self.manager.presentMenu.toggle()
+                    continue
+                case .menu:
+                    handledLongPress = false
+                    backTimer?.invalidate()
+                    backTimer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: false) { [weak self] _ in
+                        guard let self = self else { return }
+                        self.handledLongPress = true
+                        DispatchQueue.main.async {
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                                self.manager.presentMenu.toggle()
+                            }
                         }
                     }
+                    continue
+                default:
+                    break
                 }
-                return
-            default:
-                break
             }
+            unhandledPresses.insert(press)
         }
-        super.pressesBegan(presses, with: event)
+        if !unhandledPresses.isEmpty {
+            super.pressesBegan(unhandledPresses, with: event)
+        }
     }
     
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
@@ -237,69 +332,223 @@ final class TVWebViewController: GCEventViewController, UIGestureRecognizerDeleg
             return
         }
         
+        var unhandledPresses: Set<UIPress> = []
         for press in presses {
-            switch press.type {
-            case .upArrow, .downArrow, .leftArrow, .rightArrow:
-                stopDirectionalMovement()
-                return
-            case .select:
-                switch manager.controlMode {
-                case .cursor:
-                    manager.tapAtCursor()
-                    return
-                case .scroll:
-                    break
-                case .tvRemote:
-                    manager.sendRemoteKey(key: "Enter", code: "Enter", keyCode: 13)
-                    return
+            if let key = press.key {
+                if handleHardwareKeyPress(key, isKeyUp: true) {
+                    continue
                 }
-            case .playPause:
-                playPauseTimer?.invalidate()
-                playPauseTimer = nil
-                if handledPlayPauseLongPress {
-                    handledPlayPauseLongPress = false
-                    return
-                }
-                DispatchQueue.main.async {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                        self.manager.presentQuickMenu.toggle()
+            } else {
+                switch press.type {
+                case .upArrow, .downArrow, .leftArrow, .rightArrow:
+                    stopDirectionalMovement()
+                    continue
+                case .select:
+                    switch manager.controlMode {
+                    case .cursor:
+                        manager.tapAtCursor()
+                        continue
+                    case .scroll:
+                        break
+                    case .tvRemote:
+                        manager.sendRemoteKey(key: "Enter", code: "Enter", keyCode: 13)
+                        continue
                     }
+                case .playPause:
+                    playPauseTimer?.invalidate()
+                    playPauseTimer = nil
+                    if handledPlayPauseLongPress {
+                        handledPlayPauseLongPress = false
+                        continue
+                    }
+                    DispatchQueue.main.async {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            self.manager.presentQuickMenu.toggle()
+                        }
+                    }
+                    continue
+                case .menu:
+                    backTimer?.invalidate()
+                    backTimer = nil
+                    if handledLongPress {
+                        handledLongPress = false
+                        continue
+                    }
+                    
+                    if manager.presentQuickMenu {
+                        withAnimation { manager.presentQuickMenu = false }
+                        continue
+                    }
+                    if manager.presentMenu {
+                        withAnimation { manager.presentMenu = false }
+                        continue
+                    }
+                    
+                    if manager.controlMode == .tvRemote {
+                        manager.sendRemoteBackKey()
+                        continue
+                    }
+                    
+                    if let tab = manager.activeTab, tab.canGoBack {
+                        tab.goBack()
+                        continue
+                    }
+                    
+                    unhandledPresses.insert(press)
+                    continue
+                default:
+                    break
                 }
-                return
-            case .menu:
-                backTimer?.invalidate()
-                backTimer = nil
-                if handledLongPress {
-                    handledLongPress = false
-                    return
+            }
+            unhandledPresses.insert(press)
+        }
+        if !unhandledPresses.isEmpty {
+            super.pressesEnded(unhandledPresses, with: event)
+        }
+    }
+    
+    private func mapUIKey(_ key: UIKey) -> (key: String, code: String, keyCode: Int) {
+        switch key.keyCode {
+        case .keyboardReturnOrEnter:
+            return ("Enter", "Enter", 13)
+        case .keyboardDeleteOrBackspace:
+            return ("Backspace", "Backspace", 8)
+        case .keyboardDeleteForward:
+            return ("Delete", "Delete", 46)
+        case .keyboardTab:
+            return ("Tab", "Tab", 9)
+        case .keyboardEscape:
+            return ("Escape", "Escape", 27)
+        case .keyboardSpacebar:
+            return (" ", "Space", 32)
+        case .keyboardUpArrow:
+            return ("ArrowUp", "ArrowUp", 38)
+        case .keyboardDownArrow:
+            return ("ArrowDown", "ArrowDown", 40)
+        case .keyboardLeftArrow:
+            return ("ArrowLeft", "ArrowLeft", 37)
+        case .keyboardRightArrow:
+            return ("ArrowRight", "ArrowRight", 39)
+        case .keyboardPageUp:
+            return ("PageUp", "PageUp", 33)
+        case .keyboardPageDown:
+            return ("PageDown", "PageDown", 34)
+        case .keyboardHome:
+            return ("Home", "Home", 36)
+        case .keyboardEnd:
+            return ("End", "End", 35)
+        default:
+            let char = key.characters
+            let raw = key.charactersIgnoringModifiers.uppercased()
+            let code: String
+            let keyCode: Int
+            if let scalar = raw.unicodeScalars.first, scalar.value >= 65 && scalar.value <= 90 {
+                code = "Key" + raw
+                keyCode = Int(scalar.value)
+            } else if let scalar = raw.unicodeScalars.first, scalar.value >= 48 && scalar.value <= 57 {
+                code = "Digit" + raw
+                keyCode = Int(scalar.value)
+            } else {
+                code = raw
+                keyCode = Int(raw.unicodeScalars.first?.value ?? 0)
+            }
+            return (char.isEmpty ? raw : char, code, keyCode)
+        }
+    }
+    
+    private func handleHardwareKeyPress(_ key: UIKey, isKeyUp: Bool) -> Bool {
+        let mods = key.modifierFlags
+        let isCmd = mods.contains(.command)
+        
+        if isKeyUp {
+            let mapped = mapUIKey(key)
+            manager.activeTab?.handlePhysicalKey(
+                key: mapped.key,
+                code: mapped.code,
+                keyCode: mapped.keyCode,
+                isShift: mods.contains(.shift),
+                isCtrl: mods.contains(.control),
+                isAlt: mods.contains(.alternate),
+                isMeta: isCmd,
+                isKeyUp: true
+            )
+            return true
+        }
+        
+        if isCmd {
+            let raw = key.charactersIgnoringModifiers.lowercased()
+            switch raw {
+            case "r":
+                manager.reload()
+                return true
+            case "l":
+                manager.presentSearchSheet = true
+                return true
+            case "t":
+                manager.addNewTab()
+                return true
+            case "w":
+                if let tabId = manager.activeTabId {
+                    manager.closeTab(id: tabId)
                 }
-                
-                if manager.presentQuickMenu {
-                    withAnimation { manager.presentQuickMenu = false }
-                    return
-                }
-                if manager.presentMenu {
-                    withAnimation { manager.presentMenu = false }
-                    return
-                }
-                
-                if manager.controlMode == .tvRemote {
-                    manager.sendRemoteBackKey()
-                    return
-                }
-                
+                return true
+            case "[":
                 if let tab = manager.activeTab, tab.canGoBack {
                     tab.goBack()
-                    return
                 }
-                
-                super.pressesEnded(presses, with: event)
-                return
+                return true
+            case "]":
+                if let tab = manager.activeTab, tab.canGoForward {
+                    tab.goForward()
+                }
+                return true
+            case "+", "=":
+                manager.zoomIn()
+                return true
+            case "-":
+                manager.zoomOut()
+                return true
+            case "0":
+                manager.resetZoom()
+                return true
+            case "d":
+                manager.addActiveTabToFavorites()
+                return true
             default:
                 break
             }
+            
+            if key.keyCode == .keyboardUpArrow {
+                manager.activeTab?.scrollToTop()
+                return true
+            } else if key.keyCode == .keyboardDownArrow {
+                manager.activeTab?.scrollToBottom()
+                return true
+            } else if key.keyCode == .keyboardLeftArrow {
+                if let tab = manager.activeTab, tab.canGoBack {
+                    tab.goBack()
+                }
+                return true
+            } else if key.keyCode == .keyboardRightArrow {
+                if let tab = manager.activeTab, tab.canGoForward {
+                    tab.goForward()
+                }
+                return true
+            }
         }
-        super.pressesEnded(presses, with: event)
+        
+        let mapped = mapUIKey(key)
+        manager.activeTab?.handlePhysicalKey(
+            key: mapped.key,
+            code: mapped.code,
+            keyCode: mapped.keyCode,
+            isShift: mods.contains(.shift),
+            isCtrl: mods.contains(.control),
+            isAlt: mods.contains(.alternate),
+            isMeta: isCmd,
+            isKeyUp: false
+        )
+        return true
     }
     
     override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {

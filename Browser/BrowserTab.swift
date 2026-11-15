@@ -26,6 +26,7 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
     private var kvoHelper: TabKVOHelper?
     private var colorTask: Task<Void, Never>?
     private var faviconTask: Task<Void, Never>?
+    private var currentZoom: Double = 1.0
     
     var onStateChanged: (() -> Void)?
     var onTextInputFocused: ((_ placeholder: String, _ value: String) -> Void)?
@@ -119,6 +120,72 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
                 }
             }
         }
+    }
+    
+    func mouseMoved(to point: CGPoint, buttons: Int = 0) {
+        guard let wv = webView else { return }
+        WebKitBridge.mouseMove(at: point, buttons: buttons, on: wv)
+    }
+    
+    func mouseDown(at point: CGPoint, button: Int = 0) {
+        guard let wv = webView else { return }
+        WebKitBridge.mouseDown(at: point, button: button, on: wv)
+    }
+    
+    func mouseUp(at point: CGPoint, button: Int = 0, isHardwareMouse: Bool = false) {
+        guard let wv = webView else { return }
+        WebKitBridge.mouseUp(at: point, button: button, on: wv) { [weak self] isTextInput, value, placeholder in
+            if isTextInput && !isHardwareMouse {
+                DispatchQueue.main.async {
+                    self?.onTextInputFocused?(placeholder, value)
+                }
+            }
+        }
+    }
+    
+    func contextMenu(at point: CGPoint) {
+        guard let wv = webView else { return }
+        WebKitBridge.contextMenu(at: point, on: wv)
+    }
+    
+    func middleClick(at point: CGPoint) {
+        guard let wv = webView else { return }
+        WebKitBridge.middleClick(at: point, on: wv)
+    }
+    
+    func handlePhysicalKey(key: String, code: String, keyCode: Int, isShift: Bool, isCtrl: Bool, isAlt: Bool, isMeta: Bool, isKeyUp: Bool) {
+        guard let wv = webView else { return }
+        WebKitBridge.handlePhysicalKey(key: key, code: code, keyCode: keyCode, isShift: isShift, isCtrl: isCtrl, isAlt: isAlt, isMeta: isMeta, isKeyUp: isKeyUp, on: wv)
+    }
+    
+    func zoomIn() {
+        currentZoom = min(currentZoom + 0.15, 3.0)
+        applyZoom()
+    }
+    
+    func zoomOut() {
+        currentZoom = max(currentZoom - 0.15, 0.5)
+        applyZoom()
+    }
+    
+    func resetZoom() {
+        currentZoom = 1.0
+        applyZoom()
+    }
+    
+    private func applyZoom() {
+        guard let wv = webView else { return }
+        WebKitBridge.setZoom(currentZoom, on: wv)
+    }
+    
+    func scrollToTop() {
+        guard let wv = webView else { return }
+        WebKitBridge.scrollToTop(on: wv)
+    }
+    
+    func scrollToBottom() {
+        guard let wv = webView else { return }
+        WebKitBridge.scrollToBottom(on: wv)
     }
     
     func fetchActiveElementInfo(completion: @escaping (_ placeholder: String, _ currentValue: String) -> Void) {

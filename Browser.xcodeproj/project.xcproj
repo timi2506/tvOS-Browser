@@ -65,7 +65,12 @@
         "DEVELOPMENT_TEAM": "",
         "ENABLE_PREVIEWS": "YES",
         "GENERATE_INFOPLIST_FILE": "YES",
+        "INFOPLIST_KEY_GCSupportsControllerUserInteraction": "YES",
+        "INFOPLIST_KEY_GCSupportsMouseAndKeyboard": "YES",
         "INFOPLIST_KEY_LSApplicationQueriesSchemes": "airdropper",
+        "INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription": "Bluetooth access allows connecting to Bluetooth mice, keyboards, and game controllers.",
+        "INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription": "Bluetooth access allows connecting to Bluetooth mice, keyboards, and game controllers.",
+        "INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents": "YES",
         "INFOPLIST_KEY_UILaunchScreen_Generation": "YES",
         "INFOPLIST_KEY_UIUserInterfaceStyle": "Automatic",
         "LD_RUNPATH_SEARCH_PATHS": [
