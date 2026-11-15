@@ -27,6 +27,9 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
     private var colorTask: Task<Void, Never>?
     private var faviconTask: Task<Void, Never>?
     
+    var onStateChanged: (() -> Void)?
+    var onTextInputFocused: ((_ placeholder: String, _ value: String) -> Void)?
+    
     init(id: UUID = UUID(), initialURL: URL? = nil) {
         self.id = id
         super.init()
@@ -81,6 +84,8 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
         self.url = url
         self.isLoading = true
         self.estimatedProgress = 0.15
+        HistoryManager.shared.addEntry(title: self.title, url: url)
+        onStateChanged?()
         var request = URLRequest(url: url)
         request.timeoutInterval = 30
         WebKitBridge.loadRequest(request, on: webView)
@@ -106,7 +111,80 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
     }
     
     func clickAt(point: CGPoint) {
-        WebKitBridge.tapAtPoint(x: point.x, y: point.y, on: webView)
+        guard let wv = webView else { return }
+        WebKitBridge.tapAtPoint(x: point.x, y: point.y, on: wv) { [weak self] isTextInput, value, placeholder in
+            if isTextInput {
+                DispatchQueue.main.async {
+                    self?.onTextInputFocused?(placeholder, value)
+                }
+            }
+        }
+    }
+    
+    func fetchActiveElementInfo(completion: @escaping (_ placeholder: String, _ currentValue: String) -> Void) {
+        guard let wv = webView else {
+            completion("", "")
+            return
+        }
+        let js = """
+        (function() {
+            var el = document.activeElement;
+            if (!el || el === document.body || el === document.documentElement) {
+                var inputs = document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), textarea');
+                if (inputs.length > 0) el = inputs[0];
+            }
+            var placeholder = (el && el.getAttribute('placeholder')) || (el && el.getAttribute('aria-label')) || '';
+            var val = (el && (el.value || el.innerText)) || '';
+            return JSON.stringify({ placeholder: placeholder, value: val });
+        })();
+        """
+        WebKitBridge.evaluateJavaScript(js, on: wv) { result, _ in
+            if let jsonStr = result as? String,
+               let data = jsonStr.data(using: .utf8),
+               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
+                completion(dict["placeholder"] ?? "", dict["value"] ?? "")
+            } else {
+                completion("", "")
+            }
+        }
+    }
+    
+    func submitKeyboardText(_ text: String, pressEnter: Bool = true) {
+        guard let wv = webView else { return }
+        let escaped = text.replacingOccurrences(of: "\\", with: "\\\\")
+                          .replacingOccurrences(of: "'", with: "\\'")
+                          .replacingOccurrences(of: "\n", with: "\\n")
+                          .replacingOccurrences(of: "\r", with: "\\r")
+        let js = """
+        (function() {
+            var el = document.activeElement;
+            if (!el || el === document.body || el === document.documentElement) {
+                var inputs = document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), textarea');
+                if (inputs.length > 0) el = inputs[0];
+            }
+            if (!el) return false;
+            if (typeof el.focus === 'function') el.focus();
+            if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+                el.value = '\(escaped)';
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            } else if (el.isContentEditable) {
+                el.innerText = '\(escaped)';
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+            if (\(pressEnter)) {
+                var enterDown = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true });
+                el.dispatchEvent(enterDown);
+                var enterUp = new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true });
+                el.dispatchEvent(enterUp);
+                if (el.form && typeof el.form.submit === 'function') {
+                    el.form.submit();
+                }
+            }
+            return true;
+        })();
+        """
+        WebKitBridge.evaluateJavaScript(js, on: wv)
     }
     
     func scrollBy(dx: CGFloat, dy: CGFloat) {
@@ -115,6 +193,10 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
     
     func sendRemoteKey(_ key: String, code: String, keyCode: Int) {
         WebKitBridge.sendTVRemoteKey(key, code: code, keyCode: keyCode, on: webView)
+    }
+    
+    func sendRemoteBackKey() {
+        WebKitBridge.sendTVRemoteBackKey(on: webView)
     }
     
     func fetchColorAndFavicon(for url: URL) {
@@ -188,12 +270,18 @@ final class TabKVOHelper: NSObject {
             case "title":
                 if let title = change?[.newKey] as? String, !title.isEmpty {
                     tab.title = title
+                    if let url = tab.url {
+                        HistoryManager.shared.updateTitle(title, for: url)
+                        tab.onStateChanged?()
+                    }
                 }
             case "URL":
                 if let url = change?[.newKey] as? URL {
                     if tab.url != url {
                         tab.url = url
                         tab.fetchColorAndFavicon(for: url)
+                        HistoryManager.shared.addEntry(title: tab.title, url: url)
+                        tab.onStateChanged?()
                     }
                 }
             case "canGoBack":
@@ -225,7 +313,8 @@ final class TabNavigationDelegate: NSObject {
         self.tab = tab
     }
     
-    @objc func webView(_ webView: AnyObject, didStartProvisionalNavigation navigation: AnyObject?) {
+    @objc(webView:didStartProvisionalNavigation:)
+    func webView(_ webView: AnyObject, didStartProvisionalNavigation navigation: AnyObject?) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self, let tab = self.tab else { return }
             tab.isLoading = true
@@ -246,7 +335,8 @@ final class TabNavigationDelegate: NSObject {
         }
     }
     
-    @objc func webView(_ webView: AnyObject, didCommit navigation: AnyObject?) {
+    @objc(webView:didCommitNavigation:)
+    func webView(_ webView: AnyObject, didCommit navigation: AnyObject?) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self, let tab = self.tab else { return }
             tab.estimatedProgress = max(tab.estimatedProgress, 0.4)
@@ -254,7 +344,8 @@ final class TabNavigationDelegate: NSObject {
         }
     }
     
-    @objc func webView(_ webView: AnyObject, didFinish navigation: AnyObject?) {
+    @objc(webView:didFinishNavigation:)
+    func webView(_ webView: AnyObject, didFinish navigation: AnyObject?) {
         loadTimeoutTask?.cancel()
         DispatchQueue.main.async { [weak self] in
             guard let self = self, let tab = self.tab else { return }
@@ -273,11 +364,13 @@ final class TabNavigationDelegate: NSObject {
             tab.canGoForward = WebKitBridge.canGoForward(on: tab.webView)
             if let url = tab.url {
                 HistoryManager.shared.addEntry(title: tab.title, url: url)
+                tab.onStateChanged?()
             }
         }
     }
     
-    @objc func webView(_ webView: AnyObject, didFail navigation: AnyObject?, withError error: Error) {
+    @objc(webView:didFailNavigation:withError:)
+    func webView(_ webView: AnyObject, didFail navigation: AnyObject?, withError error: Error) {
         loadTimeoutTask?.cancel()
         DispatchQueue.main.async { [weak self] in
             guard let self = self, let tab = self.tab else { return }
@@ -286,7 +379,8 @@ final class TabNavigationDelegate: NSObject {
         }
     }
     
-    @objc func webView(_ webView: AnyObject, didFailProvisionalNavigation navigation: AnyObject?, withError error: Error) {
+    @objc(webView:didFailProvisionalNavigation:withError:)
+    func webView(_ webView: AnyObject, didFailProvisionalNavigation navigation: AnyObject?, withError error: Error) {
         loadTimeoutTask?.cancel()
         DispatchQueue.main.async { [weak self] in
             guard let self = self, let tab = self.tab else { return }
@@ -295,7 +389,8 @@ final class TabNavigationDelegate: NSObject {
         }
     }
     
-    @objc func webView(_ webView: AnyObject, decidePolicyForNavigationResponse response: AnyObject, decisionHandler: @escaping (Int) -> Void) {
+    @objc(webView:decidePolicyForNavigationResponse:decisionHandler:)
+    func webView(_ webView: AnyObject, decidePolicyForNavigationResponse response: AnyObject, decisionHandler: @escaping (Int) -> Void) {
         if let httpResponse = response.value(forKey: "response") as? HTTPURLResponse,
            let url = httpResponse.url {
             let mimeType = httpResponse.mimeType ?? ""
@@ -303,12 +398,12 @@ final class TabNavigationDelegate: NSObject {
             let contentDisposition = httpResponse.allHeaderFields["Content-Disposition"] as? String ?? ""
             
             let isAttachment = contentDisposition.lowercased().contains("attachment")
-            let isDownloadableExt = ["zip", "dmg", "pkg", "tar", "gz", "7z", "iso", "rar"].contains(url.pathExtension.lowercased())
+            let isDownloadableExt = ["zip", "dmg", "pkg", "tar", "gz", "tgz", "bz2", "7z", "iso", "rar", "apk", "ipa", "deb", "exe", "bin", "torrent", "msi"].contains(url.pathExtension.lowercased())
             
             if (!canShow && !mimeType.isEmpty) || isAttachment || isDownloadableExt {
                 decisionHandler(0)
                 let filename = httpResponse.suggestedFilename ?? url.lastPathComponent
-                DownloadManager.shared.startDownload(from: url, suggestedFilename: filename)
+                DownloadManager.shared.promptDownload(from: url, suggestedFilename: filename)
                 return
             }
         }

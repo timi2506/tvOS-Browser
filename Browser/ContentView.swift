@@ -27,9 +27,9 @@ enum RemoteControlMode: String, CaseIterable, Identifiable {
 }
 
 enum UserAgentType: String, CaseIterable, Identifiable {
-    case desktopSafari = "Desktop (Mac Safari)"
-    case mobileSafari = "Mobile (iPhone)"
-    case iPadSafari = "Tablet (iPad)"
+    case desktopSafari = "Safari on macOS"
+    case mobileSafari = "Safari on iPhone)"
+    case iPadSafari = "Safari on iPad"
     case smartTV = "Apple TV"
     case custom = "Custom"
     
@@ -38,24 +38,57 @@ enum UserAgentType: String, CaseIterable, Identifiable {
     var value: String {
         switch self {
         case .desktopSafari:
-            return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
+            return "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_8_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Safari/605.1.15"
         case .mobileSafari:
-            return "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
+            return "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7_12 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1"
         case .iPadSafari:
-            return "Mozilla/5.0 (iPad; CPU OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
+            return "Mozilla/5.0 (iPad; CPU OS 18_7_12 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1"
         case .smartTV:
-            return "Mozilla/5.0 (AppleTV; CPU OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
+            return "AppleCoreMedia/1.0.0.24J5325d (Apple TV; U; CPU OS 27_0 like Mac OS X; en_us)"
         case .custom:
             return UserDefaults.standard.string(forKey: "CustomUserAgentString") ?? WebViewManager.defaultCustomUserAgent
         }
     }
 }
 
+enum TouchpadSensitivity: String, CaseIterable, Identifiable, Codable {
+    case verySlow = "Very Slow"
+    case slow = "Slow"
+    case medium = "Medium"
+    case fast = "Fast"
+    case veryFast = "Very Fast"
+    
+    var id: String { rawValue }
+    
+    var cursorMultiplier: CGFloat {
+        switch self {
+        case .verySlow: return 0.6
+        case .slow: return 0.9
+        case .medium: return 1.2
+        case .fast: return 1.5
+        case .veryFast: return 2.0
+        }
+    }
+    
+    var scrollMultiplier: CGFloat {
+        switch self {
+        case .verySlow: return 0.8
+        case .slow: return 1.3
+        case .medium: return 1.6
+        case .fast: return 2.0
+        case .veryFast: return 2.6
+        }
+    }
+}
+
 struct ContentView: View {
     @StateObject var manager = WebViewManager.shared
+    @ObservedObject var downloadManager = DownloadManager.shared
     @FocusState var focusMenu: Bool
     @State var urlBarURL = ""
     @State var wrongURLPrompt = false
+    @State var showingSettings = false
+    @State private var showingOnboarding = !UserDefaults.standard.bool(forKey: "HasSeenOnboarding")
     
     private var urlHostTitle: String {
         manager.url?.host() ?? "URL or Search"
@@ -74,8 +107,19 @@ struct ContentView: View {
         }
         .ignoresSafeArea()
         .sheet(isPresented: $manager.presentQuickMenu) {
-            QuickMenuView(manager: manager)
+            QuickMenuView(manager: manager, showingSettings: $showingSettings)
                 .frame(width: 1200, height: 900)
+        }
+        .sheet(isPresented: $showingSettings) {
+            SettingsView(manager: manager)
+        }
+        .sheet(isPresented: $manager.presentKeyboard) {
+            KeyboardInputSheet(manager: manager)
+        }
+        .sheet(isPresented: $showingOnboarding) {
+            OnboardingView {
+                UserDefaults.standard.set(true, forKey: "HasSeenOnboarding")
+            }
         }
         .onChange(of: manager.presentMenu) { _, newValue in
             withAnimation {
@@ -100,6 +144,35 @@ struct ContentView: View {
             }
         } message: {
             Text("The URL \"\(urlBarURL)\" is not a valid URL.")
+        }
+        .alert(
+            "Download File?",
+            isPresented: Binding(
+                get: { downloadManager.pendingDownload != nil },
+                set: { if !$0 { downloadManager.pendingDownload = nil } }
+            ),
+            presenting: downloadManager.pendingDownload
+        ) { pending in
+            Button("Download") {
+                downloadManager.startDownload(from: pending.url, suggestedFilename: pending.filename)
+                downloadManager.pendingDownload = nil
+            }
+            Button("Show QR Code") {
+                let item = pending
+                downloadManager.pendingDownload = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    downloadManager.activeQRCodeDownload = item
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                downloadManager.pendingDownload = nil
+            }
+        } message: { pending in
+            Text("Do you want to download \"\(pending.filename)\"?")
+        }
+        .sheet(item: $downloadManager.activeQRCodeDownload) { item in
+            DownloadQRCodeSheet(download: item)
+                .frame(minWidth: 1000, minHeight: 800)
         }
     }
     
@@ -135,26 +208,26 @@ struct ContentView: View {
                     }
                 }
             }
-            
-            VStack(alignment: .leading, spacing: 5) {
-                Text("FAVORITES")
-                    .font(.caption2)
-                    .bold()
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 5)
-                
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12.5) {
-                        ForEach($manager.favorites) { $favorite in
-                            FavoriteButton(favorite: $favorite)
+            if !manager.favorites.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("FAVORITES")
+                        .font(.caption2)
+                        .bold()
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 5)
+                    
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12.5) {
+                            ForEach($manager.favorites) { $favorite in
+                                FavoriteButton(favorite: $favorite)
+                            }
                         }
+                        .padding(.vertical, 5)
                     }
-                    .padding(.vertical, 5)
+                    .scrollClipDisabled()
                 }
-                .scrollClipDisabled()
+                .frame(maxWidth: 520)
             }
-            .frame(maxWidth: 520)
-            
             Divider()
                 .padding(.vertical, 5)
             
@@ -203,12 +276,21 @@ struct ContentView: View {
             Divider()
                 .padding(.vertical, 5)
             
-            HStack(spacing: 15) {
+            HStack(spacing: 10) {
                 Spacer()
+                Button("Settings", systemImage: "gear") {
+                    withAnimation {
+                        showingSettings = true
+                    }
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
                 NavigationLink(destination: {
                     DownloadsView()
                 }) {
                     Label("Downloads", systemImage: "arrow.down.circle")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.25)
                 }
                 .buttonStyle(.bordered)
                 Button("Close", systemImage: "xmark") {
@@ -221,12 +303,15 @@ struct ContentView: View {
                 Spacer()
             }
         }
-        .padding(20)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 36))
-        .frame(maxWidth: 520)
-        .clipShape(RoundedRectangle(cornerRadius: 36))
+        .padding(15)
+        .frame(maxWidth: 550)
         .transition(.move(edge: .leading).combined(with: .opacity))
         .focused($focusMenu)
+        .onExitCommand {
+            withAnimation {
+                manager.presentMenu = false
+            }
+        }
     }
     
     @ViewBuilder
@@ -266,6 +351,11 @@ struct ContentView: View {
                         .position(manager.cursorPosition)
                 }
             }
+            .overlay(alignment: .bottomTrailing) {
+                if !downloadManager.activeDownloads.isEmpty {
+                    downloadIndicatorOverlay
+                }
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .ignoresSafeArea()
             .onAppear {
@@ -277,6 +367,53 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea()
+    }
+    
+    @ViewBuilder
+    private var downloadIndicatorOverlay: some View {
+        let progressValues = Array(downloadManager.activeDownloads.values)
+        let avgProgress = progressValues.isEmpty ? 0.0 : (progressValues.reduce(0.0, +) / Double(progressValues.count))
+        
+        HStack(spacing: 10) {
+            ZStack {
+                if avgProgress > 0.0 {
+                    Circle()
+                        .stroke(Color.white.opacity(0.2), lineWidth: 3.5)
+                        .frame(width: 38, height: 38)
+                    
+                    Circle()
+                        .trim(from: 0.0, to: CGFloat(avgProgress))
+                        .stroke(manager.currentColor ?? Color.accentColor, style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .frame(width: 38, height: 38)
+                        .animation(.easeInOut(duration: 0.2), value: avgProgress)
+                    
+                    Image(systemName: "arrow.down")
+                        .font(.system(size: 14, weight: .bold))
+                } else {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .frame(width: 38, height: 38)
+                }
+            }
+            
+            if downloadManager.activeDownloads.count > 1 {
+                Text("\(downloadManager.activeDownloads.count)")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(10)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(
+            Capsule()
+                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.35), radius: 8, x: 0, y: 4)
+        .padding(.trailing, 50)
+        .padding(.bottom, 50)
+        .transition(.scale.combined(with: .opacity))
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: downloadManager.activeDownloads.isEmpty)
     }
 }
 
@@ -386,13 +523,25 @@ struct SearchView: View {
     
     @State private var suggestions: [String] = []
     @State private var fetchTask: Task<Void, Never>?
+    @ObservedObject private var manager = WebViewManager.shared
     
     var body: some View {
         NavigationStack {
             VStack {
                 Spacer()
-                HStack {
+                HStack(spacing: 20) {
                     Spacer()
+                    Button("Go") {
+                        handleSubmit(query: urlBarURL)
+                    }
+                    .disabled(urlBarURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    
+                    Button("Clear") {
+                        urlBarURL = ""
+                        suggestions = []
+                    }
+                    .disabled(urlBarURL.isEmpty)
+                    
                     Button("Cancel") {
                         dismiss()
                     }
@@ -404,14 +553,20 @@ struct SearchView: View {
                 handleSubmit(query: urlBarURL)
             }
             .searchSuggestions {
-                ForEach(suggestions, id: \.self) { suggestion in
-                    Button(suggestion) {
-                        urlBarURL = suggestion
-                        handleSubmit(query: suggestion)
+                if manager.enableSearchSuggestions {
+                    ForEach(suggestions, id: \.self) { suggestion in
+                        Button(suggestion) {
+                            urlBarURL = suggestion
+                            handleSubmit(query: suggestion)
+                        }
                     }
                 }
             }
             .onChange(of: urlBarURL) { newValue in
+                guard manager.enableSearchSuggestions else {
+                    suggestions = []
+                    return
+                }
                 fetchTask?.cancel()
                 
                 fetchTask = Task {
@@ -438,7 +593,7 @@ struct SearchView: View {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         
         if trimmed.contains(" ") {
-            return createGoogleSearchURL(for: trimmed)
+            return manager.searchEngine.searchURL(for: trimmed)
         }
         
         if let url = URL(string: trimmed), url.scheme != nil, url.host != nil {
@@ -449,16 +604,14 @@ struct SearchView: View {
             return url
         }
         
-        return createGoogleSearchURL(for: trimmed)
-    }
-    
-    private func createGoogleSearchURL(for query: String) -> URL? {
-        var components = URLComponents(string: "https://www.google.com/search")
-        components?.queryItems = [URLQueryItem(name: "q", value: query)]
-        return components?.url
+        return manager.searchEngine.searchURL(for: trimmed)
     }
     
     private func fetchSuggestions(for query: String) async {
+        guard manager.enableSearchSuggestions else {
+            await MainActor.run { suggestions = [] }
+            return
+        }
         guard !query.isEmpty else {
             await MainActor.run { suggestions = [] }
             return
@@ -487,6 +640,12 @@ struct SearchView: View {
     }
 }
 
+struct SavedTab: Codable {
+    let id: UUID
+    let urlString: String
+    let title: String
+}
+
 class WebViewManager: ObservableObject {
     public static let shared = WebViewManager()
     
@@ -506,7 +665,7 @@ class WebViewManager: ObservableObject {
         }
     }
     
-    @Published public var currentUserAgent: UserAgentType = .desktopSafari {
+    @Published public var currentUserAgent: UserAgentType = .smartTV {
         didSet {
             activeTab?.setUserAgent(currentUserAgent.value)
             activeTab?.reload()
@@ -519,7 +678,85 @@ class WebViewManager: ObservableObject {
     @Published public var presentMenu = true
     @Published public var presentQuickMenu = false
     
+    private let touchpadSensitivityKey = "BrowserTouchpadSensitivity"
+    
+    @Published public var touchpadSensitivity: TouchpadSensitivity = {
+        if let raw = UserDefaults.standard.string(forKey: "BrowserTouchpadSensitivity"),
+           let sens = TouchpadSensitivity(rawValue: raw) {
+            return sens
+        }
+        return .medium
+    }() {
+        didSet {
+            UserDefaults.standard.set(touchpadSensitivity.rawValue, forKey: touchpadSensitivityKey)
+        }
+    }
+    
+    private let searchEngineKey = "BrowserSearchEngine"
+    private let enableSearchSuggestionsKey = "BrowserEnableSearchSuggestions"
+    
+    @Published public var searchEngine: SearchEngine = {
+        if let raw = UserDefaults.standard.string(forKey: "BrowserSearchEngine"),
+           let engine = SearchEngine(rawValue: raw) {
+            return engine
+        }
+        return .google
+    }() {
+        didSet {
+            UserDefaults.standard.set(searchEngine.rawValue, forKey: searchEngineKey)
+        }
+    }
+    
+    @Published public var enableSearchSuggestions: Bool = {
+        if UserDefaults.standard.object(forKey: "BrowserEnableSearchSuggestions") != nil {
+            return UserDefaults.standard.bool(forKey: "BrowserEnableSearchSuggestions")
+        }
+        return true
+    }() {
+        didSet {
+            UserDefaults.standard.set(enableSearchSuggestions, forKey: enableSearchSuggestionsKey)
+        }
+    }
+    
+    private let autoKeyboardDetectionKey = "BrowserAutoKeyboardDetection"
+    
+    @Published public var autoKeyboardDetection: Bool = {
+        if UserDefaults.standard.object(forKey: "BrowserAutoKeyboardDetection") != nil {
+            return UserDefaults.standard.bool(forKey: "BrowserAutoKeyboardDetection")
+        }
+        return true
+    }() {
+        didSet {
+            UserDefaults.standard.set(autoKeyboardDetection, forKey: autoKeyboardDetectionKey)
+        }
+    }
+    
+    @Published public var presentKeyboard: Bool = false
+    @Published public var keyboardInputText: String = ""
+    @Published public var keyboardPlaceholder: String = ""
+    
     @Published public var favorites: [Favorite] = []
+    
+    private let keepTabsOpenKey = "BrowserKeepTabsOpen"
+    private let savedTabsKey = "BrowserSavedTabs"
+    private let activeTabKey = "BrowserActiveTabId"
+    
+    @Published public var keepTabsOpen: Bool = {
+        if UserDefaults.standard.object(forKey: "BrowserKeepTabsOpen") != nil {
+            return UserDefaults.standard.bool(forKey: "BrowserKeepTabsOpen")
+        }
+        return true
+    }() {
+        didSet {
+            UserDefaults.standard.set(keepTabsOpen, forKey: keepTabsOpenKey)
+            if keepTabsOpen {
+                saveTabsState()
+            } else {
+                UserDefaults.standard.removeObject(forKey: savedTabsKey)
+                UserDefaults.standard.removeObject(forKey: activeTabKey)
+            }
+        }
+    }
     
     private var activeTabCancellable: AnyCancellable?
     private let favoritesKey = "BrowserFavorites"
@@ -538,12 +775,65 @@ class WebViewManager: ObservableObject {
     
     private init() {
         loadFavorites()
-        
-        let defaultTab = BrowserTab(initialURL: URL(string: "https://google.com"))
-        defaultTab.setUserAgent(currentUserAgent.value)
-        self.tabs = [defaultTab]
-        self.activeTabId = defaultTab.id
+        loadTabs()
+    }
+    
+    private func setupTab(_ tab: BrowserTab) {
+        tab.onStateChanged = { [weak self] in
+            self?.saveTabsState()
+        }
+        tab.onTextInputFocused = { [weak self] placeholder, value in
+            guard let self = self, self.autoKeyboardDetection else { return }
+            self.keyboardPlaceholder = placeholder
+            self.keyboardInputText = value
+            self.presentKeyboard = true
+        }
+    }
+    
+    private func loadTabs() {
+        if keepTabsOpen,
+           let data = UserDefaults.standard.data(forKey: savedTabsKey),
+           let savedTabs = try? JSONDecoder().decode([SavedTab].self, from: data),
+           !savedTabs.isEmpty {
+            var loadedTabs: [BrowserTab] = []
+            for saved in savedTabs {
+                let url = URL(string: saved.urlString)
+                let tab = BrowserTab(id: saved.id, initialURL: url)
+                tab.title = saved.title
+                tab.setUserAgent(currentUserAgent.value)
+                setupTab(tab)
+                loadedTabs.append(tab)
+            }
+            self.tabs = loadedTabs
+            if let activeStr = UserDefaults.standard.string(forKey: activeTabKey),
+               let activeUUID = UUID(uuidString: activeStr),
+               loadedTabs.contains(where: { $0.id == activeUUID }) {
+                self.activeTabId = activeUUID
+            } else {
+                self.activeTabId = loadedTabs.first?.id
+            }
+        } else {
+            let defaultTab = BrowserTab(initialURL: URL(string: "https://google.com"))
+            defaultTab.setUserAgent(currentUserAgent.value)
+            setupTab(defaultTab)
+            self.tabs = [defaultTab]
+            self.activeTabId = defaultTab.id
+        }
         observeActiveTab()
+    }
+    
+    public func saveTabsState() {
+        guard keepTabsOpen else { return }
+        let savedTabs = tabs.compactMap { tab -> SavedTab? in
+            guard let url = tab.url else { return nil }
+            return SavedTab(id: tab.id, urlString: url.absoluteString, title: tab.title)
+        }
+        if !savedTabs.isEmpty, let data = try? JSONEncoder().encode(savedTabs) {
+            UserDefaults.standard.set(data, forKey: savedTabsKey)
+            if let activeId = activeTabId {
+                UserDefaults.standard.set(activeId.uuidString, forKey: activeTabKey)
+            }
+        }
     }
     
     private func observeActiveTab() {
@@ -551,6 +841,7 @@ class WebViewManager: ObservableObject {
         if let current = activeTab {
             activeTabCancellable = current.objectWillChange.sink { [weak self] _ in
                 self?.objectWillChange.send()
+                self?.saveTabsState()
             }
         }
     }
@@ -558,9 +849,11 @@ class WebViewManager: ObservableObject {
     public func addNewTab(url: URL? = URL(string: "https://google.com")) {
         let newTab = BrowserTab(initialURL: url)
         newTab.setUserAgent(currentUserAgent.value)
+        setupTab(newTab)
         tabs.append(newTab)
         activeTabId = newTab.id
         observeActiveTab()
+        saveTabsState()
     }
     
     public func closeTab(id: UUID) {
@@ -574,11 +867,13 @@ class WebViewManager: ObservableObject {
             activeTabId = tabs[nextIndex].id
             observeActiveTab()
         }
+        saveTabsState()
     }
     
     public func selectTab(id: UUID) {
         activeTabId = id
         observeActiveTab()
+        saveTabsState()
     }
     
     public func loadURL(_ url: URL) {
@@ -587,6 +882,7 @@ class WebViewManager: ObservableObject {
         } else {
             addNewTab(url: url)
         }
+        saveTabsState()
     }
     
     public func reload() {
@@ -653,6 +949,24 @@ class WebViewManager: ObservableObject {
         activeTab?.sendRemoteKey(key, code: code, keyCode: keyCode)
     }
     
+    public func sendRemoteBackKey() {
+        activeTab?.sendRemoteBackKey()
+    }
+    
+    public func presentKeyboardPrompt() {
+        activeTab?.fetchActiveElementInfo { [weak self] placeholder, currentValue in
+            DispatchQueue.main.async {
+                self?.keyboardPlaceholder = placeholder
+                self?.keyboardInputText = currentValue
+                self?.presentKeyboard = true
+            }
+        }
+    }
+    
+    public func submitKeyboardText(_ text: String, pressEnter: Bool = true) {
+        activeTab?.submitKeyboardText(text, pressEnter: pressEnter)
+    }
+    
     public func addFavorite(title: String, url: URL) {
         Task {
             let fav = await Favorite(title: title, url: url)
@@ -696,12 +1010,12 @@ class WebViewManager: ObservableObject {
     
     private func loadFavorites() {
         if let data = UserDefaults.standard.data(forKey: favoritesKey),
-           let saved = try? JSONDecoder().decode([Favorite].self, from: data), !saved.isEmpty {
+           let saved = try? JSONDecoder().decode([Favorite].self, from: data) {
             self.favorites = saved
         } else {
             Task {
                 let google = await Favorite(title: "Google", url: URL(string: "https://google.com")!)
-                let youtube = await Favorite(title: "YouTube", url: URL(string: "https://youtube.com")!)
+                let youtube = await Favorite(title: "YouTube", url: URL(string: "https://youtube.com/tv")!)
                 let apple = await Favorite(title: "Apple", url: URL(string: "https://apple.com")!)
                 await MainActor.run {
                     self.favorites = [google, youtube, apple]
@@ -844,39 +1158,53 @@ struct EditFavoriteSheet: View {
     
     var body: some View {
         NavigationStack {
-            Form {
-                Section(header: Text("Website Information")) {
-                    TextField("Title", text: $title)
-                    TextField("URL", text: $urlString)
-                        .textContentType(.URL)
-                        .keyboardType(.URL)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text("Title")
+                        .bold()
+                    Spacer()
                 }
+                TextField("Title", text: $title)
+                
+                HStack {
+                    Text("URL")
+                        .bold()
+                    Spacer()
+                }
+                TextField("URL", text: $urlString)
+                    .textContentType(.URL)
+                    .keyboardType(.URL)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
                 
                 if let error = errorMessage {
-                    Section {
-                        Text(error)
-                            .foregroundStyle(.red)
-                    }
+                    Text(error)
+                        .foregroundStyle(.red)
                 }
-                
-                Section {
-                    Button("Save Changes") {
+                Spacer()
+                Divider()
+                HStack(spacing: 15) {
+                    Spacer()
+                    Button("Save Changes", systemImage: "pencil") {
                         saveChanges()
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
                     
-                    Button("Cancel", role: .cancel) {
+                    Button("Cancel", systemImage: "xmark") {
                         dismiss()
                     }
+                    .buttonStyle(.bordered)
+                    Spacer()
                 }
+                .padding()
             }
+            .padding()
             .navigationTitle("Edit Favorite")
-            .onAppear {
-                title = favorite.title
-                urlString = favorite.url.absoluteString
-            }
+        }
+        .frame(width: 1200, height: 900)
+        .onAppear {
+            title = favorite.title
+            urlString = favorite.url.absoluteString
         }
     }
     

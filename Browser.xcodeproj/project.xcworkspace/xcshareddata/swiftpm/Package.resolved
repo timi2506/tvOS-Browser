@@ -1,6 +1,15 @@
 {
-  "originHash" : "426140295ce0aa2d903c9a8933cce4ba9ca37ee2d808a0a2a551e273b5d84892",
+  "originHash" : "5fb8021c39e7fe458789d1be08c8b902841d27ab99c2752c3fc1b2b32bbc96bc",
   "pins" : [
+    {
+      "identity" : "backglass",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/timi2506/BackGlass",
+      "state" : {
+        "branch" : "main",
+        "revision" : "f389c9308e276b8565b2f5f9b830ebcb819dcc5e"
+      }
+    },
     {
       "identity" : "faviconfinder",
       "kind" : "remoteSourceControl",

@@ -11,17 +11,19 @@ import Combine
 struct QuickMenuView: View {
     @ObservedObject var manager: WebViewManager
     @Environment(\.dismiss) private var dismiss
+    @Binding var showingSettings: Bool
     @State private var showingFavoriteSheet = false
     @State private var showingHistorySheet = false
-    @State private var showingCustomUASheet = false
-    
-    init(manager: WebViewManager) {
+    init(manager: WebViewManager, showingSettings: Binding<Bool>) {
         self.manager = manager
+        self._showingSettings = showingSettings
     }
     
     var body: some View {
         NavigationStack {
-            Form {
+            VStack {
+                Text("Control Mode")
+                    .bold()
                 Picker("Control Mode", selection: $manager.controlMode) {
                     ForEach(RemoteControlMode.allCases) { mode in
                         Label(mode.rawValue, systemImage: mode.iconName)
@@ -29,62 +31,77 @@ struct QuickMenuView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
-                HStack {
-                    Text("User Agent")
-                    Spacer()
-                    Picker("User Agent", selection: $manager.currentUserAgent) {
-                        ForEach(UserAgentType.allCases) { agent in
-                            Text(agent.rawValue)
-                                .tag(agent)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                }
-                
-                Button("Add Custom User Agent", systemImage: "plus.circle") {
-                    showingCustomUASheet = true
-                }
-                
-                Section("Navigation") {
-                    Button("Go Back", systemImage: "arrow.backward") {
-                        manager.goBack()
-                        dismiss()
-                    }
-                    .disabled(!manager.canGoBack)
-                    
-                    Button("Go Forward", systemImage: "arrow.forward") {
-                        manager.goForward()
-                        dismiss()
-                    }
-                    .disabled(!manager.canGoForward)
-                    
-                    Button("Reload Page", systemImage: "arrow.clockwise") {
-                        manager.reload()
-                        dismiss()
+                Divider()
+                Button(action: {
+                    manager.goBack()
+                    dismiss()
+                }) {
+                    HStack {
+                        Label("Go Back", systemImage: "arrow.backward")
+                        Spacer()
                     }
                 }
+                .disabled(!manager.canGoBack)
                 
-                Section("Quick Actions") {
-                    Button("Add to Favorites", systemImage: "star.badge.plus") {
-                        showingFavoriteSheet = true
+                Button(action: {
+                    manager.goForward()
+                    dismiss()
+                }) {
+                    HStack {
+                        Label("Go Forward", systemImage: "arrow.forward")
+                        Spacer()
                     }
-                    
-                    Button("History", systemImage: "clock") {
-                        showingHistorySheet = true
+                }
+                .disabled(!manager.canGoForward)
+                
+                Button(action: {
+                    manager.reload()
+                    dismiss()
+                }) {
+                    HStack {
+                        Label("Reload Page", systemImage: "arrow.clockwise")
+                        Spacer()
                     }
-                    
-                    Button("Show Sidebar", systemImage: "sidebar.leading") {
-                        withAnimation {
+                }
+                Divider()
+                ScrollView(.horizontal) {
+                    HStack(spacing: 15) {
+                        Button("Show Keyboard", systemImage: "keyboard") {
                             dismiss()
-                            manager.presentMenu = true
+                            manager.presentKeyboardPrompt()
                         }
+                        .buttonStyle(.bordered)
+                        Button("Add to Favorites", systemImage: "star") {
+                            showingFavoriteSheet = true
+                        }
+                        .buttonStyle(.bordered)
+                        Button("History", systemImage: "clock") {
+                            showingHistorySheet = true
+                        }
+                        .buttonStyle(.bordered)
+                        Button("Show Sidebar", systemImage: "sidebar.leading") {
+                            withAnimation {
+                                dismiss()
+                                manager.presentMenu = true
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        Button("Settings", systemImage: "gear") {
+                            dismiss()
+                            showingSettings = true
+                        }
+                        .buttonStyle(.bordered)
                     }
+                }
+                .scrollClipDisabled()
+            }
+            .modify {
+                if #available(tvOS 26.0, *) {
+                    $0.labelReservedIconWidth(35)
+                } else {
+                   $0
                 }
             }
-            .labelReservedIconWidth(35)
-            .scrollClipDisabled()
             .padding()
             .navigationTitle("Quick Menu")
             .toolbar {
@@ -102,9 +119,12 @@ struct QuickMenuView: View {
         .sheet(isPresented: $showingHistorySheet) {
             HistorySheetView(manager: manager)
         }
-        .sheet(isPresented: $showingCustomUASheet) {
-            CustomUserAgentSheet(manager: manager)
-        }
+    }
+}
+
+extension View {
+    func modify(@ViewBuilder _ content: (Self) -> some View) -> some View{
+        content(self)
     }
 }
 
@@ -121,35 +141,51 @@ struct CustomUserAgentSheet: View {
     
     var body: some View {
         NavigationStack {
-            Form {
-                Section(header: Text("Custom User Agent")) {
-                    TextField("User Agent String", text: $userAgentString)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                }
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Custom User Agent")
+                    .bold()
+                
+                TextField("User Agent String", text: $userAgentString)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
                 
                 if let error = errorMessage {
-                    Section {
-                        Text(error)
-                            .foregroundStyle(.red)
-                    }
+                    Text(error)
+                        .foregroundStyle(.red)
                 }
                 
-                Section {
-                    Button("Save and Apply") {
+                Spacer()
+                Divider()
+                
+                HStack(spacing: 15) {
+                    Spacer()
+                    Button("Save and Apply", systemImage: "checkmark") {
                         saveUserAgent()
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
                     
-                    Button("Cancel", role: .cancel) {
+                    Button("Cancel", systemImage: "xmark") {
                         dismiss()
+                    }
+                    .buttonStyle(.bordered)
+                    Spacer()
+                }
+                .padding()
+                
+            }
+            .padding()
+            .navigationTitle("Custom User Agent")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        saveUserAgent()
                     }
                 }
             }
-            .navigationTitle("Custom User Agent")
-            .onAppear {
-                userAgentString = manager.customUserAgentString
-            }
+        }
+        .frame(width: 1200, height: 900)
+        .onAppear {
+            userAgentString = manager.customUserAgentString
         }
     }
     
@@ -179,41 +215,67 @@ struct FavoriteSheet: View {
     
     var body: some View {
         NavigationStack {
-            Form {
-                Section(header: Text("Website Information")) {
-                    TextField("Title", text: $title)
-                    TextField("URL", text: $urlString)
-                        .textContentType(.URL)
-                        .keyboardType(.URL)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Website Information")
+                    .bold()
+                
+                HStack {
+                    Text("Title")
+                        .bold()
+                    Spacer()
                 }
+                TextField("Title", text: $title)
+                
+                HStack {
+                    Text("URL")
+                        .bold()
+                    Spacer()
+                }
+                TextField("URL", text: $urlString)
+                    .textContentType(.URL)
+                    .keyboardType(.URL)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
                 
                 if let error = errorMessage {
-                    Section {
-                        Text(error)
-                            .foregroundStyle(.red)
-                    }
+                    Text(error)
+                        .foregroundStyle(.red)
                 }
                 
-                Section {
-                    Button("Save Favorite") {
+                Spacer()
+                Divider()
+                HStack(spacing: 15) {
+                    Spacer()
+                    Button("Save Favorite", systemImage: "star.fill") {
                         saveFavorite()
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
                     
-                    Button("Cancel", role: .cancel) {
+                    Button("Cancel", systemImage: "xmark") {
                         dismiss()
+                    }
+                    .buttonStyle(.bordered)
+                    Spacer()
+                }
+                .padding()
+                
+            }
+            .padding()
+            .navigationTitle("Add to Favorites")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        saveFavorite()
                     }
                 }
             }
-            .navigationTitle("Add to Favorites")
-            .onAppear {
-                let currentTitle = manager.activeTab?.title ?? ""
-                let currentUrl = manager.url?.absoluteString ?? ""
-                self.title = currentTitle.isEmpty ? (manager.url?.host() ?? "") : currentTitle
-                self.urlString = currentUrl
-            }
+        }
+        .frame(width: 1200, height: 900)
+        .onAppear {
+            let currentTitle = manager.activeTab?.title ?? ""
+            let currentUrl = manager.url?.absoluteString ?? ""
+            self.title = currentTitle.isEmpty ? (manager.url?.host() ?? "") : currentTitle
+            self.urlString = currentUrl
         }
     }
     
@@ -243,7 +305,21 @@ struct HistorySheetView: View {
     
     var body: some View {
         NavigationStack {
-            List {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text("Recent History (\(historyManager.history.count))")
+                        .bold()
+                    Spacer()
+                    if !historyManager.history.isEmpty {
+                        Button("Clear History", role: .destructive) {
+                            historyManager.clearHistory()
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+                
+                Divider()
+                
                 if historyManager.history.isEmpty {
                     VStack(spacing: 16) {
                         Spacer()
@@ -259,57 +335,51 @@ struct HistorySheetView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
                 } else {
-                    Section(header: HStack {
-                        Text("Recent History (\(historyManager.history.count))")
-                        Spacer()
-                        Button("Clear History", role: .destructive) {
-                            historyManager.clearHistory()
-                        }
-                        .font(.caption)
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.red)
-                    }) {
-                        ForEach(historyManager.history) { item in
-                            Button(action: {
-                                manager.loadURL(item.url)
-                                dismiss()
-                                manager.presentQuickMenu = false
-                            }) {
-                                HStack(spacing: 16) {
-                                    Image(systemName: "globe")
-                                        .foregroundStyle(.tint)
-                                        .frame(width: 32)
-                                    
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(item.title)
-                                            .font(.headline)
-                                            .lineLimit(1)
-                                        Text(item.url.absoluteString)
-                                            .font(.caption)
+                    ScrollView(.vertical) {
+                        VStack(spacing: 10) {
+                            ForEach(historyManager.history) { item in
+                                Button(action: {
+                                    manager.loadURL(item.url)
+                                    dismiss()
+                                    manager.presentQuickMenu = false
+                                }) {
+                                    HStack(spacing: 16) {
+                                        Image(systemName: "globe")
+                                            .foregroundStyle(.tint)
+                                            .frame(width: 32)
+                                        
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(item.title)
+                                                .font(.headline)
+                                                .lineLimit(1)
+                                            Text(item.url.absoluteString)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                        
+                                        Spacer()
+                                        
+                                        Text(item.formattedDate)
+                                            .font(.caption2)
                                             .foregroundStyle(.secondary)
-                                            .lineLimit(1)
                                     }
-                                    
-                                    Spacer()
-                                    
-                                    Text(item.formattedDate)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
                                 }
-                                .padding(.vertical, 4)
                             }
                         }
                     }
                 }
             }
+            .padding()
             .navigationTitle("History")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
                         dismiss()
                     }
                 }
             }
         }
+        .frame(width: 1200, height: 900)
     }
 }

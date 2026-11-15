@@ -9,7 +9,7 @@ import Foundation
 import SwiftUI
 import Combine
 
-struct DownloadItem: Identifiable, Hashable {
+struct DownloadItem: Identifiable, Hashable, Codable {
     let id: UUID
     var filename: String
     var localURL: URL
@@ -58,11 +58,25 @@ struct DownloadItem: Identifiable, Hashable {
     }
 }
 
+struct PendingDownload: Identifiable, Hashable {
+    let id: UUID
+    let url: URL
+    let filename: String
+    
+    init(id: UUID = UUID(), url: URL, filename: String) {
+        self.id = id
+        self.url = url
+        self.filename = filename
+    }
+}
+
 final class DownloadManager: NSObject, ObservableObject {
     static let shared = DownloadManager()
     
     @Published private(set) var downloads: [DownloadItem] = []
     @Published private(set) var activeDownloads: [UUID: Double] = [:]
+    @Published var pendingDownload: PendingDownload?
+    @Published var activeQRCodeDownload: PendingDownload?
     
     private var downloadDirectory: URL {
         let fileManager = FileManager.default
@@ -90,15 +104,40 @@ final class DownloadManager: NSObject, ObservableObject {
             return
         }
         
-        var loaded: [DownloadItem] = []
-        for file in files {
-            let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-            let size = Int64(values?.fileSize ?? 0)
-            let date = values?.contentModificationDate ?? Date()
-            loaded.append(DownloadItem(filename: file.lastPathComponent, localURL: file, fileSize: size, downloadDate: date))
+        var savedItems: [DownloadItem] = []
+        if let data = UserDefaults.standard.data(forKey: "BrowserSavedDownloadsMetadata"),
+           let decoded = try? JSONDecoder().decode([DownloadItem].self, from: data) {
+            savedItems = decoded
         }
         
-        self.downloads = loaded.sorted { $0.downloadDate > $1.downloadDate }
+        let existingPaths = Set(files.map { $0.path })
+        var validItems: [DownloadItem] = savedItems.filter { existingPaths.contains($0.localURL.path) }
+        let savedPaths = Set(validItems.map { $0.localURL.path })
+        
+        for file in files {
+            if !savedPaths.contains(file.path) {
+                let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+                let size = Int64(values?.fileSize ?? 0)
+                let date = values?.contentModificationDate ?? Date()
+                validItems.append(DownloadItem(filename: file.lastPathComponent, localURL: file, fileSize: size, downloadDate: date))
+            }
+        }
+        
+        self.downloads = validItems.sorted { $0.downloadDate > $1.downloadDate }
+        saveMetadata()
+    }
+    
+    func promptDownload(from url: URL, suggestedFilename: String? = nil) {
+        let name: String
+        if let s = suggestedFilename, !s.isEmpty {
+            name = s
+        } else {
+            let last = url.lastPathComponent
+            name = (last.isEmpty || last == "/") ? "download" : last
+        }
+        DispatchQueue.main.async {
+            self.pendingDownload = PendingDownload(url: url, filename: name)
+        }
     }
     
     func startDownload(from url: URL, suggestedFilename: String? = nil) {
@@ -113,6 +152,7 @@ final class DownloadManager: NSObject, ObservableObject {
     func deleteDownload(_ item: DownloadItem) {
         try? FileManager.default.removeItem(at: item.localURL)
         downloads.removeAll { $0.id == item.id }
+        saveMetadata()
     }
     
     func clearAllDownloads() {
@@ -120,6 +160,13 @@ final class DownloadManager: NSObject, ObservableObject {
             try? FileManager.default.removeItem(at: item.localURL)
         }
         downloads.removeAll()
+        saveMetadata()
+    }
+    
+    private func saveMetadata() {
+        if let data = try? JSONEncoder().encode(downloads) {
+            UserDefaults.standard.set(data, forKey: "BrowserSavedDownloadsMetadata")
+        }
     }
 }
 
@@ -156,6 +203,7 @@ extension DownloadManager: URLSessionDownloadDelegate {
             
             withAnimation {
                 self.downloads.insert(item, at: 0)
+                self.saveMetadata()
             }
         } catch {
             print("[DownloadManager] Failed to save downloaded file: \(error)")

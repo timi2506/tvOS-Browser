@@ -75,7 +75,7 @@ public struct WebsiteColorParser {
     
     private static func fetchFaviconColor(from url: URL) async throws -> NativeColor? {
         let faviconFinderURLs = try await FaviconFinder(url: url).fetchFaviconURLs()
-
+        
         let urls = faviconFinderURLs.sorted { one, two in
             func priority(for format: FaviconFormatType) -> Int {
                 switch format {
@@ -99,12 +99,12 @@ public extension NativeColor {
         var b: CGFloat = 0
         var a: CGFloat = 0
         
-        #if canImport(UIKit)
+#if canImport(UIKit)
         guard getHue(&h, saturation: &s, brightness: &b, alpha: &a) else { return false }
-        #elseif canImport(AppKit)
+#elseif canImport(AppKit)
         guard let rgbColor = self.usingColorSpace(.deviceRGB) else { return false }
         rgbColor.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
-        #endif
+#endif
         
         if b < 0.25 { return true }
         if s < 0.15 { return true }
@@ -142,15 +142,15 @@ public extension NativeColor {
 
 public extension NativeImage {
     var dominantColor: NativeColor? {
-        #if canImport(UIKit)
+#if canImport(UIKit)
         guard let cgImage = self.cgImage else { return nil }
         let inputImage = CIImage(cgImage: cgImage)
-        #elseif canImport(AppKit)
+#elseif canImport(AppKit)
         guard let tiffData = self.tiffRepresentation,
               let bitmapImage = NSBitmapImageRep(data: tiffData),
               let cgImage = bitmapImage.cgImage else { return nil }
         let inputImage = CIImage(cgImage: cgImage)
-        #endif
+#endif
         
         let extentVector = CIVector(x: inputImage.extent.origin.x,
                                     y: inputImage.extent.origin.y,
@@ -199,14 +199,14 @@ extension Color: @retroactive Codable {
         var b: CGFloat = 0
         var a: CGFloat = 0
         
-        #if canImport(UIKit)
+#if canImport(UIKit)
         if UIColor(self).getRed(&r, green: &g, blue: &b, alpha: &a) {
             try container.encode(Double(r), forKey: .red)
             try container.encode(Double(g), forKey: .green)
             try container.encode(Double(b), forKey: .blue)
             try container.encode(Double(a), forKey: .alpha)
         }
-        #elseif canImport(AppKit)
+#elseif canImport(AppKit)
         if let rgbColor = NSColor(self).usingColorSpace(.deviceRGB) {
             rgbColor.getRed(&r, green: &g, blue: &b, alpha: &a)
             try container.encode(Double(r), forKey: .red)
@@ -214,6 +214,6 @@ extension Color: @retroactive Codable {
             try container.encode(Double(b), forKey: .blue)
             try container.encode(Double(a), forKey: .alpha)
         }
-        #endif
+#endif
     }
 }

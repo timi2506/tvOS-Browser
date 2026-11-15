@@ -160,7 +160,7 @@ final class WebKitBridge {
         })
     }
     
-    static func tapAtPoint(x: CGFloat, y: CGFloat, on webView: UIView) {
+    static func tapAtPoint(x: CGFloat, y: CGFloat, on webView: UIView, completion: ((Bool, String, String) -> Void)? = nil) {
         let js = """
         (function() {
             var x = \(x);
@@ -179,7 +179,7 @@ final class WebKitBridge {
                     }
                 }
             }
-            if (!el) return 'no element';
+            if (!el) return JSON.stringify({ isTextInput: false, value: '', placeholder: '' });
             var target = (el.closest && el.closest('a, button, input, textarea, select, [role="button"], [role="link"], [role="tab"], [tabindex], label')) || el;
             if (typeof target.focus === 'function') {
                 target.focus();
@@ -201,10 +201,44 @@ final class WebKitBridge {
             if (typeof target.click === 'function') {
                 target.click();
             }
-            return target.tagName;
+            var active = document.activeElement || target;
+            var isTextInput = false;
+            var val = '';
+            var placeholder = '';
+            if (active) {
+                var tag = (active.tagName || '').toUpperCase();
+                if (tag === 'TEXTAREA' || active.isContentEditable) {
+                    isTextInput = true;
+                    val = active.value || active.innerText || '';
+                    placeholder = active.getAttribute('placeholder') || '';
+                } else if (tag === 'INPUT') {
+                    var type = (active.getAttribute('type') || 'text').toLowerCase();
+                    if (!['button', 'submit', 'checkbox', 'radio', 'image', 'reset', 'file', 'hidden'].includes(type)) {
+                        isTextInput = true;
+                        val = active.value || '';
+                        placeholder = active.getAttribute('placeholder') || '';
+                    }
+                }
+            }
+            return JSON.stringify({
+                isTextInput: isTextInput,
+                value: val,
+                placeholder: placeholder
+            });
         })();
         """
-        evaluateJavaScript(js, on: webView)
+        evaluateJavaScript(js, on: webView) { result, _ in
+            if let str = result as? String,
+               let data = str.data(using: .utf8),
+               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let isTextInput = (dict["isTextInput"] as? Bool) ?? false
+                let val = (dict["value"] as? String) ?? ""
+                let placeholder = (dict["placeholder"] as? String) ?? ""
+                completion?(isTextInput, val, placeholder)
+            } else {
+                completion?(false, "", "")
+            }
+        }
     }
     
     static func sendTVRemoteKey(_ key: String, code: String, keyCode: Int, on webView: UIView) {
@@ -220,6 +254,10 @@ final class WebKitBridge {
                 cancelable: true,
                 view: window
             });
+            try {
+                Object.defineProperty(downEvent, 'keyCode', { get: function() { return \(keyCode); } });
+                Object.defineProperty(downEvent, 'which', { get: function() { return \(keyCode); } });
+            } catch(e) {}
             target.dispatchEvent(downEvent);
             if ('\(key)' === 'Enter') {
                 var pressEvent = new KeyboardEvent('keypress', {
@@ -231,6 +269,10 @@ final class WebKitBridge {
                     cancelable: true,
                     view: window
                 });
+                try {
+                    Object.defineProperty(pressEvent, 'keyCode', { get: function() { return \(keyCode); } });
+                    Object.defineProperty(pressEvent, 'which', { get: function() { return \(keyCode); } });
+                } catch(e) {}
                 target.dispatchEvent(pressEvent);
             }
             var upEvent = new KeyboardEvent('keyup', {
@@ -242,7 +284,60 @@ final class WebKitBridge {
                 cancelable: true,
                 view: window
             });
+            try {
+                Object.defineProperty(upEvent, 'keyCode', { get: function() { return \(keyCode); } });
+                Object.defineProperty(upEvent, 'which', { get: function() { return \(keyCode); } });
+            } catch(e) {}
             target.dispatchEvent(upEvent);
+        })();
+        """
+        evaluateJavaScript(js, on: webView)
+    }
+    
+    static func sendTVRemoteBackKey(on webView: UIView) {
+        let js = """
+        (function() {
+            var target = document.activeElement || document.body || document.documentElement || window;
+            var candidates = [
+                { key: 'Escape', code: 'Escape', keyCode: 27 },
+                { key: 'GoBack', code: 'BrowserBack', keyCode: 461 },
+                { key: 'Return', code: 'Return', keyCode: 10009 },
+                { key: 'Backspace', code: 'Backspace', keyCode: 8 }
+            ];
+            for (var i = 0; i < candidates.length; i++) {
+                var c = candidates[i];
+                var down = new KeyboardEvent('keydown', {
+                    key: c.key,
+                    code: c.code,
+                    keyCode: c.keyCode,
+                    which: c.keyCode,
+                    bubbles: true,
+                    cancelable: true,
+                    view: window
+                });
+                try {
+                    Object.defineProperty(down, 'keyCode', { get: function() { return c.keyCode; } });
+                    Object.defineProperty(down, 'which', { get: function() { return c.keyCode; } });
+                } catch(e) {}
+                var notCancelled = target.dispatchEvent(down);
+                var up = new KeyboardEvent('keyup', {
+                    key: c.key,
+                    code: c.code,
+                    keyCode: c.keyCode,
+                    which: c.keyCode,
+                    bubbles: true,
+                    cancelable: true,
+                    view: window
+                });
+                try {
+                    Object.defineProperty(up, 'keyCode', { get: function() { return c.keyCode; } });
+                    Object.defineProperty(up, 'which', { get: function() { return c.keyCode; } });
+                } catch(e) {}
+                target.dispatchEvent(up);
+                if (!notCancelled || down.defaultPrevented) {
+                    break;
+                }
+            }
         })();
         """
         evaluateJavaScript(js, on: webView)

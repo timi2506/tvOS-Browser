@@ -22,18 +22,23 @@ struct TVWebViewRepresentable: UIViewControllerRepresentable {
     
     func updateUIViewController(_ uiViewController: TVWebViewController, context: Context) {
         uiViewController.updateActiveTab()
+        uiViewController.updatePanGestureState()
     }
 }
 
-final class TVWebViewController: UIViewController {
+final class TVWebViewController: UIViewController, UIGestureRecognizerDelegate {
     private let manager: WebViewManager
     private var currentWebView: UIView?
+    private var panGesture: UIPanGestureRecognizer?
     
     private var directionalTimer: Timer?
     private var activeDirection: (dx: CGFloat, dy: CGFloat)?
     
     private var backTimer: Timer?
     private var handledLongPress = false
+    
+    private var playPauseTimer: Timer?
+    private var handledPlayPauseLongPress = false
     
     init(manager: WebViewManager) {
         self.manager = manager
@@ -54,10 +59,13 @@ final class TVWebViewController: UIViewController {
         edgesForExtendedLayout = .all
         extendedLayoutIncludesOpaqueBars = true
         
-        let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
-        view.addGestureRecognizer(panGesture)
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        pan.delegate = self
+        view.addGestureRecognizer(pan)
+        self.panGesture = pan
         
         updateActiveTab()
+        updatePanGestureState()
     }
     
     override func viewDidLayoutSubviews() {
@@ -83,15 +91,32 @@ final class TVWebViewController: UIViewController {
         }
     }
     
+    func updatePanGestureState() {
+        if manager.presentMenu {
+            stopDirectionalMovement()
+        }
+        panGesture?.isEnabled = !manager.presentMenu
+    }
+    
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if gestureRecognizer === panGesture && manager.presentMenu {
+            return false
+        }
+        return true
+    }
+    
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        guard !manager.presentMenu else { return }
         let translation = gesture.translation(in: view)
         gesture.setTranslation(.zero, in: view)
         
         switch manager.controlMode {
         case .cursor:
-            manager.moveCursor(by: CGSize(width: translation.x * 1.5, height: translation.y * 1.5))
+            let sens = manager.touchpadSensitivity.cursorMultiplier
+            manager.moveCursor(by: CGSize(width: translation.x * sens, height: translation.y * sens))
         case .scroll:
-            manager.scrollActiveTab(dx: -translation.x * 2.0, dy: -translation.y * 2.0)
+            let sens = manager.touchpadSensitivity.scrollMultiplier
+            manager.scrollActiveTab(dx: -translation.x * sens, dy: -translation.y * sens)
         case .tvRemote:
             if abs(translation.y) > 25 {
                 if translation.y < 0 {
@@ -123,6 +148,19 @@ final class TVWebViewController: UIViewController {
                 return
             case .rightArrow:
                 startDirectionalMovement(dx: 1, dy: 0)
+                return
+            case .playPause:
+                handledPlayPauseLongPress = false
+                playPauseTimer?.invalidate()
+                playPauseTimer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: false) { [weak self] _ in
+                    guard let self = self else { return }
+                    self.handledPlayPauseLongPress = true
+                    DispatchQueue.main.async {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                            self.manager.presentMenu.toggle()
+                        }
+                    }
+                }
                 return
             case .menu:
                 handledLongPress = false
@@ -161,6 +199,12 @@ final class TVWebViewController: UIViewController {
                 }
                 return
             case .playPause:
+                playPauseTimer?.invalidate()
+                playPauseTimer = nil
+                if handledPlayPauseLongPress {
+                    handledPlayPauseLongPress = false
+                    return
+                }
                 DispatchQueue.main.async {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                         self.manager.presentQuickMenu.toggle()
@@ -183,6 +227,12 @@ final class TVWebViewController: UIViewController {
                     withAnimation { manager.presentMenu = false }
                     return
                 }
+                
+                if manager.controlMode == .tvRemote {
+                    manager.sendRemoteBackKey()
+                    return
+                }
+                
                 if let tab = manager.activeTab, tab.canGoBack {
                     tab.goBack()
                     return
@@ -201,6 +251,8 @@ final class TVWebViewController: UIViewController {
         stopDirectionalMovement()
         backTimer?.invalidate()
         backTimer = nil
+        playPauseTimer?.invalidate()
+        playPauseTimer = nil
         super.pressesCancelled(presses, with: event)
     }
     
@@ -229,10 +281,10 @@ final class TVWebViewController: UIViewController {
         
         switch manager.controlMode {
         case .cursor:
-            let step: CGFloat = 20.0
+            let step: CGFloat = 20.0 * (manager.touchpadSensitivity.cursorMultiplier / 1.5)
             manager.moveCursor(by: CGSize(width: dir.dx * step, height: dir.dy * step))
         case .scroll:
-            let step: CGFloat = 160.0
+            let step: CGFloat = 160.0 * (manager.touchpadSensitivity.scrollMultiplier / 2.0)
             manager.scrollActiveTab(dx: dir.dx * step, dy: dir.dy * step)
         case .tvRemote:
             if dir.dy < 0 {

@@ -12,6 +12,7 @@ struct DownloadsView: View {
     @ObservedObject var downloadManager = DownloadManager.shared
     @State private var showingClearConfirmation = false
     @State private var selectedFileForPreview: DownloadItem?
+    @State private var qrDownload: PendingDownload?
     
     init() {}
     
@@ -87,6 +88,22 @@ struct DownloadsView: View {
                                 
                                 Spacer()
                                 
+                                if let originalURL = item.originalURL {
+                                    Button(action: {
+                                        qrDownload = PendingDownload(url: originalURL, filename: item.filename)
+                                    }) {
+                                        Image(systemName: "qrcode")
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
+                                
+                                Button(action: {
+                                    AirDropper.shared.airDropFile(item.localURL.path)
+                                }) {
+                                    Image(systemName: "square.and.arrow.up")
+                                }
+                                .buttonStyle(.bordered)
+                                
                                 Button(role: .destructive, action: {
                                     withAnimation {
                                         downloadManager.deleteDownload(item)
@@ -98,12 +115,38 @@ struct DownloadsView: View {
                                 .tint(.red)
                             }
                             .padding(.vertical, 4)
+                            .contextMenu {
+                                if let originalURL = item.originalURL {
+                                    Button(action: {
+                                        qrDownload = PendingDownload(url: originalURL, filename: item.filename)
+                                    }) {
+                                        Label("Show QR Code", systemImage: "qrcode")
+                                    }
+                                }
+                                
+                                Button(action: {
+                                    AirDropper.shared.airDropFile(item.localURL.path)
+                                }) {
+                                    Label("AirDrop", systemImage: "square.and.arrow.up")
+                                }
+                                
+                                Button(role: .destructive, action: {
+                                    withAnimation {
+                                        downloadManager.deleteDownload(item)
+                                    }
+                                }) {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
                         }
                     }
                 }
             }
         }
         .navigationTitle("Downloads")
+        .sheet(item: $qrDownload) { item in
+            DownloadQRCodeSheet(download: item)
+        }
         .confirmationDialog("Clear all downloads?", isPresented: $showingClearConfirmation, titleVisibility: .visible) {
             Button("Delete All Files", role: .destructive) {
                 withAnimation {
