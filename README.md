@@ -1,5 +1,7 @@
 # tvOS-Browser
-A Browser for tvOS with UI similar to the Arc Browser. Supports tvOS 18+ (for now)
+A Browser for tvOS with UI similar to the Arc Browser. 
+
+Supports tvOS 18+ (for now), Tested on Apple TV 4K (3rd Generation) on tvOS 27.3
 
 Supports Game Controllers, Keyboard, Mice and Siri Remote
 
