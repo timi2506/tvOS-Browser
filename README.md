@@ -22,8 +22,11 @@ Supports Game Controllers, Keyboard, Mice and Siri Remote
 <img width="1920" height="1080" alt="Screenshot Main Bedroom 15 11 2026 at 12 22 11" src="https://github.com/user-attachments/assets/61b46547-159d-4c58-b19a-18fd87793f75" />
 
 ## Installation
-### Method 1 (Easiest) - Use Impactor
-1. Download and install [Impactor](https://github.com/claration/impactor) on your PC
+### Method 1 (Easiest) - Use Impactor/Sideloadly
+1. Download and install [Impactor](https://github.com/claration/impactor) or [Sideloadly](https://sideloadly.io) on your PC
+
+> [!NOTE]  
+> Even though I would generally recommend Impactor because it is smoother and usually works more reliably, currently I recommend using Sideloadly since Impactor has some issues with sideloading for tvOS
 
 2. Drag in the IPA from [Releases](https://github.com/timi2506/tvOS-Browser/releases) and select your Apple TV in the Device List (TIP: If it doesn't appear, open Settings on the TV and go to Remotes and Devices -> Remote App and Devices)
 
