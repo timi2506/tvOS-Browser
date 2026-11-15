@@ -1,1 +1,16 @@
-playground
+# Xcode user and workspace data
+xcuserdata/
+*.xcuserdatad
+*.xcuserstate
+
+# Build artifacts
+build/
+DerivedData/
+*.ipa
+*.dSYM.zip
+
+# macOS
+.DS_Store
+
+# Local playground
+playground/
