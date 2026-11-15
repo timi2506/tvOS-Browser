@@ -24,15 +24,27 @@ Supports Game Controllers, Keyboard, Mice and Siri Remote
 ## Installation
 ### Method 1 (Easiest) - Use Impactor
 1. Download and install [Impactor](https://github.com/claration/impactor) on your PC
+
 2. Drag in the IPA from [Releases](https://github.com/timi2506/tvOS-Browser/releases) and select your Apple TV in the Device List (TIP: If it doesn't appear, open Settings on the TV and go to Remotes and Devices -> Remote App and Devices)
+
 3. Press "Install", you may be asked for your Apple ID
+
 Done!
+
 ### Method 2 (Advanced) - Xcode
 1. Clone this Repo
+
 2. Open the Xcode Project in Xcode
+
 3. Go to Targets -> Browser and under Signing choose your own Developer Team and a custom Bundle Identifier
 <img width="1369" height="816" alt="Screenshot 2026-11-15 at 12 33 24" src="https://github.com/user-attachments/assets/69304d8f-f671-43cf-86e5-95dc94e52b3a" />
+
 4. Pair your Apple TV to Xcode (For more info, [go here](https://developer.apple.com/documentation/xcode/managing-your-simulated-and-physical-devices-in-device-hub#Pair-physical-devices-wirelessly-to-your-Mac))
+
 5. Select your Apple TV in the list of available Run Targets in the Top Bar
 <img width="1504" height="839" alt="Screenshot 2026-11-15 at 12 36 39" src="https://github.com/user-attachments/assets/6ba50635-ff16-4721-9b8c-92d4a59ed788" />
+
 6. Press the "Run" Button (Play icon) to Build and Install Browser on your Apple TV
+
+## Disclaimer
+This Project uses Private API's so it will NOT be able to be uploaded to the App Store. AI was used in the development of this Project (mainly for bridging the Private API's) but the UI was human-made (by me) and features were also manually tested by me. It just made developing this much easier :3
