@@ -65,9 +65,7 @@
         "DEVELOPMENT_TEAM": "",
         "ENABLE_PREVIEWS": "YES",
         "GENERATE_INFOPLIST_FILE": "YES",
-        "INFOPLIST_KEY_LSApplicationQueriesSchemes": [
-          "airdropper",
-        ],
+        "INFOPLIST_KEY_LSApplicationQueriesSchemes": "airdropper",
         "INFOPLIST_KEY_UILaunchScreen_Generation": "YES",
         "INFOPLIST_KEY_UIUserInterfaceStyle": "Automatic",
         "LD_RUNPATH_SEARCH_PATHS": [
@@ -78,6 +76,8 @@
         "PRODUCT_BUNDLE_IDENTIFIER": "com.timi2506.funTV",
         "PRODUCT_NAME": "$(TARGET_NAME)",
         "STRING_CATALOG_GENERATE_SYMBOLS": "YES",
+        "SUPPORTED_PLATFORMS": "appletvos appletvsimulator",
+        "SUPPORTS_MACCATALYST": "NO",
         "SWIFT_APPROACHABLE_CONCURRENCY": "YES",
         "SWIFT_DEFAULT_ACTOR_ISOLATION": "MainActor",
         "SWIFT_EMIT_LOC_STRINGS": "YES",

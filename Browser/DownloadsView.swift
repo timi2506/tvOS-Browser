@@ -10,9 +10,12 @@ import Combine
 
 struct DownloadsView: View {
     @ObservedObject var downloadManager = DownloadManager.shared
+    @ObservedObject var fileServer = FileServerManager.shared
     @State private var showingClearConfirmation = false
     @State private var selectedFileForPreview: DownloadItem?
     @State private var qrDownload: PendingDownload?
+    @State private var sharingFileItem: DownloadItem?
+    @State private var showingServerSheet = false
     
     init() {}
     
@@ -57,6 +60,18 @@ struct DownloadsView: View {
                         Text("Downloaded Files (\(downloadManager.downloads.count))")
                         Spacer()
                         if !downloadManager.downloads.isEmpty {
+                            Button(action: {
+                                showingServerSheet = true
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: fileServer.isRunning ? "wifi" : "wifi.slash")
+                                    Text("Wi-Fi Share")
+                                }
+                            }
+                            .font(.caption)
+                            .buttonStyle(.plain)
+                            .foregroundStyle(fileServer.isRunning ? .green : .blue)
+                            
                             Button("Clear All", role: .destructive) {
                                 showingClearConfirmation = true
                             }
@@ -98,7 +113,7 @@ struct DownloadsView: View {
                                 }
                                 
                                 Button(action: {
-                                    AirDropper.shared.airDropFile(item.localURL.path)
+                                    sharingFileItem = item
                                 }) {
                                     Image(systemName: "square.and.arrow.up")
                                 }
@@ -125,9 +140,9 @@ struct DownloadsView: View {
                                 }
                                 
                                 Button(action: {
-                                    AirDropper.shared.airDropFile(item.localURL.path)
+                                    sharingFileItem = item
                                 }) {
-                                    Label("AirDrop", systemImage: "square.and.arrow.up")
+                                    Label("Share via Wi-Fi", systemImage: "square.and.arrow.up")
                                 }
                                 
                                 Button(role: .destructive, action: {
@@ -146,6 +161,15 @@ struct DownloadsView: View {
         .navigationTitle("Downloads")
         .sheet(item: $qrDownload) { item in
             DownloadQRCodeSheet(download: item)
+                .frame(minWidth: 1000, minHeight: 800)
+        }
+        .sheet(item: $sharingFileItem) { item in
+            WiFiShareSheet(item: item)
+                .frame(minWidth: 1000, minHeight: 800)
+        }
+        .sheet(isPresented: $showingServerSheet) {
+            WiFiShareSheet(item: nil)
+                .frame(minWidth: 1000, minHeight: 800)
         }
         .confirmationDialog("Clear all downloads?", isPresented: $showingClearConfirmation, titleVisibility: .visible) {
             Button("Delete All Files", role: .destructive) {

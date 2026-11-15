@@ -307,11 +307,13 @@ struct ContentView: View {
         .frame(maxWidth: 550)
         .transition(.move(edge: .leading).combined(with: .opacity))
         .focused($focusMenu)
+#if os(tvOS)
         .onExitCommand {
             withAnimation {
                 manager.presentMenu = false
             }
         }
+        #endif
     }
     
     @ViewBuilder
@@ -496,9 +498,11 @@ struct TabRowView: View {
                 Label("Duplicate Tab", systemImage: "plus.square.on.square")
             }
         }
+#if os(tvOS)
         .onPlayPauseCommand {
             showingActionSheet.toggle()
         }
+        #endif
         .confirmationDialog("Tab Options", isPresented: $showingActionSheet, titleVisibility: .visible) {
             Button("Close Tab", role: .destructive) {
                 withAnimation {

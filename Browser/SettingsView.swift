@@ -43,6 +43,7 @@ enum SearchEngine: String, CaseIterable, Identifiable, Codable {
 struct SettingsView: View {
     @ObservedObject var manager: WebViewManager
     @ObservedObject var historyManager = HistoryManager.shared
+    @ObservedObject var fileServer = FileServerManager.shared
     @Environment(\.dismiss) private var dismiss
     @State private var showingCustomUASheet = false
     @State private var showingOnboarding = false
@@ -137,6 +138,36 @@ struct SettingsView: View {
                         Spacer()
                         Toggle("", isOn: $historyManager.saveHistoryAcrossLaunches)
                             .labelsHidden()
+                    }
+                    
+                    Divider()
+                    
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Wi-Fi File Sharing Server")
+                                .bold()
+                            if fileServer.isRunning, let url = fileServer.serverURL {
+                                Text(url.absoluteString)
+                                    .font(.caption)
+                                    .foregroundStyle(.green)
+                            } else {
+                                Text("Stopped")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Toggle("", isOn: Binding(
+                            get: { fileServer.isRunning },
+                            set: { newValue in
+                                if newValue {
+                                    fileServer.start()
+                                } else {
+                                    fileServer.stop()
+                                }
+                            }
+                        ))
+                        .labelsHidden()
                     }
                     
                     Divider()

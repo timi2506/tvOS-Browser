@@ -72,9 +72,11 @@ struct DownloadQRCodeSheet: View {
             .onAppear {
                 qrImage = generateQRCode(from: download.url.absoluteString)
             }
+            #if os(tvOS)
             .onExitCommand {
                 dismiss()
             }
+            #endif
         }
     }
     
