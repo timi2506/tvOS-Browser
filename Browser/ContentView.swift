@@ -113,7 +113,7 @@ struct ContentView: View {
         .sheet(isPresented: $showingSettings) {
             SettingsView(manager: manager)
         }
-        .sheet(isPresented: $manager.presentKeyboard) {
+        .fullScreenCover(isPresented: $manager.presentKeyboard) {
             KeyboardInputSheet(manager: manager)
         }
         .sheet(isPresented: $showingOnboarding) {
@@ -532,9 +532,13 @@ struct SearchView: View {
     var body: some View {
         NavigationStack {
             VStack {
-                Spacer()
+                Text(urlBarURL)
+                    .font(.title)
+                    .minimumScaleFactor(0.25)
+            }
+            .searchable(text: $urlBarURL, prompt: "Type URL or Search")
+            .safeAreaInset(edge: .bottom) {
                 HStack(spacing: 20) {
-                    Spacer()
                     Button("Go") {
                         handleSubmit(query: urlBarURL)
                     }
@@ -551,8 +555,9 @@ struct SearchView: View {
                     }
                     Spacer()
                 }
+                .contentShape(.rect)
+                .focusSection()
             }
-            .searchable(text: $urlBarURL, prompt: "Type URL or Search")
             .onSubmit(of: .search) {
                 handleSubmit(query: urlBarURL)
             }
