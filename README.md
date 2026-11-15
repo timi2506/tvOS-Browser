@@ -15,6 +15,7 @@ Supports Game Controllers, Keyboard, Mice and Siri Remote
 - Search Suggestions while typing
 - Downloading Files from Websites, either directly onto the TV or share to Mobile Device over QR Code
 - Customizable Settings
+- Controller + Keyboard and Mouse Support
 
 ## Screenshots
 <img width="1920" height="1080" alt="Screenshot Main Bedroom 15 11 2026 at 12 26 03" src="https://github.com/user-attachments/assets/d2afd1a6-b329-4593-99c9-0b1636fdb204" />
